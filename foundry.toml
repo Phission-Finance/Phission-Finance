@@ -2,5 +2,10 @@
 src = 'src'
 out = 'out'
 libs = ['lib']
+remappings = [
+    '@uniswap/v2-core=lib/v2-core',
+    '@uniswap/lib=lib/solidity-lib',
+    'openzeppelin-solidity-2.3.0/=lib/openzeppelin-contracts-2.3.0'
+]
 
 # See more config options https://github.com/foundry-rs/foundry/tree/master/config
