@@ -1,5 +1,7 @@
 pragma solidity ^0.8.0;
 
+import "forge-std/Test.sol";
+
 import "./Factory.sol";
 import "../lib/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 import "../lib/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
@@ -8,7 +10,7 @@ import "../lib/utils/IWETH.sol";
 import "../lib/utils/UniswapV2Utils.sol";
 import "./Treasury.sol";
 
-contract Zap /*is Test*/ {
+contract Zap is Test {
     SplitFactory splitFactory;
     IUniswapV2Router02 router;
 
@@ -54,21 +56,13 @@ contract Zap /*is Test*/ {
 
     fallback() external payable {}
 
-    uint feeBps = 10; // = 0.1%
+    uint feeBps = 25; // = 0.25%
 
-    // mint burn and redeem for eth functions, charge a small fee?
+    // mint burn and redeem for eth functions
     function mint() external payable {
         require(msg.value > 0);
         weth.deposit{value : msg.value}();
-        wethSplit.mintTo(msg.sender, msg.value); // will not work with testnet version
-    }
-
-    function testnet_mint() external payable {
-        require(msg.value > 0);
-        weth.deposit{value : msg.value}();
-        wethSplit.mint(msg.value); //
-        token0.transfer(msg.sender, msg.value);
-        token1.transfer(msg.sender, msg.value);
+        wethSplit.mintTo(msg.sender, msg.value);
     }
 
     function burn(uint _amt) public {
@@ -81,7 +75,7 @@ contract Zap /*is Test*/ {
         // TODO:
     }
 
-    function buy(uint _amt, uint _minAmtOut, bool _future0) public payable {
+    function buy(uint _amt, uint _minAmtOut, bool _future0) public payable returns (uint) {
         if (msg.value > 0) {
             require(msg.value == _amt, "amt != msg.value");
             weth.deposit{value : msg.value}();
@@ -126,48 +120,51 @@ contract Zap /*is Test*/ {
             token1.transfer(address(msg.sender), inAmt);
         }
 
-        require(out >= _minAmtOut, "too little received");
+        uint returned = inAmt + out;
+        require(returned >= _minAmtOut, "too little received");
+        return returned;
     }
 
 
-    function sell(uint _amt, uint _minAmtOut, bool _future0) public {
+    function sell(uint _amt, uint _minAmtOut, bool _future0) public returns (uint) {
         (_future0 ? token0 : token1).transferFrom(msg.sender, address(this), _amt);
 
         uint feeAmt = _amt * feeBps / 1e4;
         (_future0 ? token0 : token1).transfer(address(treasury), feeAmt);
 
         uint inAmt = _amt - feeAmt;
+        uint b;
         uint out;
-
         (uint res0, uint res1,) = pool.getReserves();
         if (_future0) {
             (uint resIn, uint resOut) = token0First ? (res0, res1) : (res1, res0);
 
-            uint b = (1000 * resIn / 997 + inAmt + resOut - Math.sqrt((1000 * resIn / 997 + inAmt + resOut) ** 2 - 4 * inAmt * resOut)) / 2;
+            b = (1000 * resIn / 997 + inAmt + resOut - Math.sqrt((1000 * resIn / 997 + inAmt + resOut) ** 2 - 4 * inAmt * resOut)) / 2;
             out = UniswapV2Utils.getAmountOut(inAmt - b, resIn, resOut);
             token0.transfer(address(pool), inAmt - b);
             pool.swap(token0First ? 0 : out, token0First ? out : 0, address(this), "");
         } else {
             (uint resIn, uint resOut) = token0First ? (res1, res0) : (res0, res1);
 
-            uint b = (1000 * resIn / 997 + inAmt + resOut - Math.sqrt((1000 * resIn / 997 + inAmt + resOut) ** 2 - 4 * inAmt * resOut)) / 2;
+            b = (1000 * resIn / 997 + inAmt + resOut - Math.sqrt((1000 * resIn / 997 + inAmt + resOut) ** 2 - 4 * inAmt * resOut)) / 2;
             out = UniswapV2Utils.getAmountOut(inAmt - b, resIn, resOut);
             token1.transfer(address(pool), inAmt - b);
             pool.swap(token0First ? out : 0, token0First ? 0 : out, address(this), "");
         }
 
+        // b - out = 1 unit of token being sold, not worth the gas to send the token dust
+
         require(out >= _minAmtOut, "too little received");
 
         wethSplit.burn(out);
-        weth.withdraw(weth.balanceOf(address(this)));
-        address(msg.sender).call{value : address(this).balance}("");
+        weth.withdraw(out);
+        address(msg.sender).call{value : out}("");
+
+        return out;
     }
 
-    /*
-         TODO: charge flat fee on input amount
-    */
 
-    function buyLP(uint _amt, uint _minAmount) public payable {
+    function buyLP(uint _amt, uint _minAmount) public payable returns (uint) {
         if (msg.value > 0) {
             require(msg.value == _amt, "amt != msg.value");
             weth.deposit{value : msg.value}();
@@ -183,50 +180,68 @@ contract Zap /*is Test*/ {
 
         (uint res0, uint res1,) = pool.getReserves();
 
-        //        emit log_named_uint("res0", res0);
-        //        emit log_named_uint("res1", res1);
+        emit log_named_uint("res0", res0);
+        emit log_named_uint("res1", res1);
+
+        emit log_string("0->");
 
         if (!token0First) (res0, res1) = (res1, res0);
         bool excessIn0 = res1 >= res0;
         if (!excessIn0) (res0, res1) = (res1, res0);
 
+        if (res0 == res1) {
+            (,  , uint returned) = router.addLiquidity(address(token0), address(token1), inAmt, inAmt, 0, 0, address(msg.sender), type(uint).max);
+            return returned;
+        }
+
+
+        emit log_string("1->");
+
         // uintamtIn=(Math.sqrt((balR0 * (4 * balF0 * balR1 * 1000 / 997 + balR0 * balF1 * (1000 - 997) ** 2 / 997 ** 2 + balR0 * balR1 * (1000 + 997) ** 2 / 997 ** 2)) / (balR1 + balF1)) - balR0 * (1000 + 997) / 997) / 2;
         uint amtIn = (Math.sqrt((res0 * (4 * inAmt * res1 * 1000 / 997 + res0 * inAmt * (1000 - 997) ** 2 / 997 ** 2 + res0 * res1 * (1000 + 997) ** 2 / 997 ** 2)) / (res1 + inAmt)) - res0 * (1000 + 997) / 997) / 2;
 
+        emit log_named_uint("amtIn", amtIn);
+
+        emit log_string("2->");
+
         uint amtOut = UniswapV2Utils.getAmountOut(amtIn, res0, res1);
-        require(amtOut > _minAmount, "too little received");
+        emit log_string("3->");
 
-        //        emit log_named_uint("inAmt", inAmt);
+        emit log_named_uint("inAmt", inAmt);
 
-        //        emit log_named_uint("amtIn", amtIn);
-        //        emit log_named_uint("amtOut", amtOut);
+        emit log_named_uint("amtOut", amtOut);
 
-
+        uint returned;
         if (excessIn0) {
             token0.transfer(address(pool), amtIn);
             pool.swap(token0First ? 0 : amtOut, token0First ? amtOut : 0, address(this), "");
 
-            //            emit log_named_uint("token0::this", token0.balanceOf(address(this)));
-            //            emit log_named_uint("token1::this", token1.balanceOf(address(this)));
+            emit log_named_uint("token0::this", token0.balanceOf(address(this)));
+            emit log_named_uint("token1::this", token1.balanceOf(address(this)));
 
-            router.addLiquidity(address(token0), address(token1),
+            (,, returned) = router.addLiquidity(address(token0), address(token1),
                 inAmt - amtIn, inAmt + amtOut, 0, 0,
                 address(msg.sender), type(uint).max);
         } else {
             token1.transfer(address(pool), amtIn);
             pool.swap(token0First ? amtOut : 0, token0First ? 0 : amtOut, address(this), "");
 
-            //            emit log_named_uint("token0::this", token0.balanceOf(address(this)));
-            //            emit log_named_uint("token1::this", token1.balanceOf(address(this)));
+            emit log_named_uint("token0::this", token0.balanceOf(address(this)));
+            emit log_named_uint("token1::this", token1.balanceOf(address(this)));
 
-            router.addLiquidity(address(token0), address(token1),
+            (,, returned) = router.addLiquidity(address(token0), address(token1),
                 inAmt + amtOut, inAmt - amtIn, 0, 0,
                 address(msg.sender), type(uint).max);
         }
 
+        require(returned > _minAmount, "too little received");
+        return returned;
     }
 
-    function sellLP(uint _amt, uint _minAmount) public {
+    function sellLP(uint _amt, uint _minAmount) public returns (uint){
+        emit log_named_uint("=> t0.b(t)", token0.balanceOf(address(this)));
+        emit log_named_uint("=> t1.b(t)", token1.balanceOf(address(this)));
+
         pool.transferFrom(address(msg.sender), address(this), _amt);
 
         uint feeAmt = _amt * feeBps / 1e4;
@@ -234,15 +249,103 @@ contract Zap /*is Test*/ {
 
         uint inAmt = _amt - feeAmt;
 
-        (uint amount0, uint amount1) = router.removeLiquidity(address(token0), address(token1), inAmt,
+        (uint a0, uint a1) = router.removeLiquidity(address(token0), address(token1), inAmt, // a0, a1 are ordered token0(here) token1(here)
             0,
             0,
             address(this),
             type(uint).max
         );
 
+        emit log_named_uint("=> t0.b(t)", token0.balanceOf(address(this)));
+        emit log_named_uint("=> t1.b(t)", token1.balanceOf(address(this)));
 
-        revert("not implemented");
+        (uint r0, uint r1,) = pool.getReserves();
+        if (!token0First) {(r0,  r1) = (r1, r0);}
+        // r0,r1 are ordered token0(pool) token1(pool), swap if token0(pool) == token1(here)
+
+        if (a0 == a1) {
+            wethSplit.burn(a0);
+            weth.withdraw(a0);
+            (bool success,) = msg.sender.call{value : a0}("");
+            require(success);
+            return a0;
+        }
+
+        bool excessIn0 = a0 > a1;
+        if (excessIn0) (a0, a1, r0, r1) = (a1, a0, r1, r0);
+
+        emit log_named_uint("=> r0 =", r0);
+        emit log_named_uint("=> r1 =", r1);
+        emit log_named_uint("=> a0 =", a0);
+        emit log_named_uint("=> a1 =", a1);
+
+        uint a_ = a1 ** 2;
+        emit log_named_uint("a_", a_);
+        uint b_ = a1 * r0 + 1000 * a1 * r1 / 997 + a0 * a1 - a1 ** 2;
+        emit log_named_uint("b_", b_);
+        //                uint c_ = a0 * 1000 * r1 / 997 - 1000 * a1 * r1 / 997;
+        uint c2_ = 1000 * a1 * r1 / 997 - a0 * 1000 * r1 / 997;
+        //                emit log_named_uint("c_", c_);
+        emit log_named_uint("c2_", c2_);
+
+        emit log_string("---");
+        //                emit log_named_uint("4 * a_ * c_", 4 * a_ * c_);
+        emit log_named_uint("4 * a_ * c2_", 4 * a_ * c2_);
+        emit log_named_uint("b_ ** 2", b_ ** 2);
+        //                emit log_named_uint("Math.sqrt(b_ ** 2 - 4 * a_ * c_)", Math.sqrt(b_ ** 2 - 4 * a_ * c_));
+        emit log_named_uint("Math.sqrt(b_ ** 2 - 4 * a_ * c2_)", Math.sqrt(b_ ** 2 + 4 * a_ * c2_));
+        emit log_string("---");
+
+        //                uint x = a0 * (b_ - Math.sqrt(b_ ** 2 - 4 * a_ * c_)) / (2 * a_);
+        uint x = a1 * (Math.sqrt(b_ ** 2 + 4 * a_ * c2_) - b_) / (2 * a_);
+        emit log_named_uint("x", x);
+
+        if (excessIn0) emit log_string("excessIn0");
+        else emit log_string("!excessIn0");
+
+        emit log_named_uint("token0.balance", token0.balanceOf(address(this)));
+        emit log_named_uint("token1.balance", token1.balanceOf(address(this)));
+
+        (excessIn0 ? token0 : token1).transfer(address(pool), x);
+        uint out =  UniswapV2Utils.getAmountOut(x, r1, r0);
+
+        if (token0First) emit log_string("token0First");
+            else emit log_string("!token0First");
+
+        if (token0First) {
+            pool.swap(excessIn0 ? 0 : out, excessIn0 ? out : 0, address(this), "");
+        } else {
+            pool.swap( excessIn0 ? out : 0,excessIn0 ? 0 : out, address(this), "");
+        }
+
+
+        emit log_named_uint("=> t0.b(t)", token0.balanceOf(address(this)));
+        emit log_named_uint("=> t1.b(t)", token1.balanceOf(address(this)));
+        emit log_named_uint("out", out);
+        emit log_named_uint("a1-x", x);
+        emit log_named_uint("a0+out", out);
+
+        uint res = a0 + out;
+        //        uint res = a1 + out;
+        require(res > _minAmount, "too little received");
+
+        wethSplit.burn(res);
+        weth.withdraw(res);
+        (bool success,) = msg.sender.call{value : res}("");
+        require(success);
+
+        emit log_named_uint("=> t0.b(t)", token0.balanceOf(address(this)));
+        emit log_named_uint("=> t1.b(t)", token1.balanceOf(address(this)));
+
+        /*
+
+            a_ = b**2
+            b_ = b*r0 + A*b*r1 - b**2 + a*b
+            c_ = a*A*r1 - A*b*r1
+            x1 = (-b_+(b_**2 - 4*a_*c_)**0.5)/(2*a_)
+        */
+
+        return res;
     }
 
 
