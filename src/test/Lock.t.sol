@@ -6,8 +6,6 @@ import "../../lib/openzeppelin-contracts/contracts/token/ERC20/IERC20.sol";
 import "../Factory.sol";
 import "./MockOracle.sol";
 
-// TODO: test lock
-
 contract TestLock is Test {
     IERC20 weth = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
     MockOracle o;
@@ -18,7 +16,5 @@ contract TestLock is Test {
         s = new Lock(weth, o);
     }
 
-    function test_fork_lock() public {
-
-    }
+    // TODO: write tests
 }

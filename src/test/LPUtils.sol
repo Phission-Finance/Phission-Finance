@@ -18,7 +18,7 @@ contract WethLp is Test {
     IERC20 public t1;
 
     IWETH weth = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
-    LP lp;
+    LP public lp;
 
     IUniswapV2Pair public pool;
     constructor(SplitFactory sf) payable {
@@ -36,7 +36,6 @@ contract WethLp is Test {
         t0.transfer(address(lp), amt);
         t1.transfer(address(lp), amt);
         lp.add(amt / 4, amt / 4);
-        lp.trade(amt / 2, true);
 
         pool = IUniswapV2Pair(univ2fac.getPair(address(t0), address(t1)));
 
@@ -49,6 +48,14 @@ contract WethLp is Test {
         emit log_named_uint("=== res1", res1);
         emit log_named_uint("=== price 1/0 (bps)", 10000 * res1 / res0);
         emit log_named_uint("=== price 0/1 (bps)", 10000 * res0 / res1);
+    }
+
+    function trade(uint amt, bool buy) public {
+        lp.trade(amt, buy);
+    }
+
+    function sendAllTo(address who) public {
+        lp.sendAllTo(who);
     }
 
     function sendTo(address who, uint wad) public {
@@ -87,6 +94,10 @@ contract SplitLp is Test {
         pool = IUniswapV2Pair(univ2fac.getPair(address(t0), address(t1)));
     }
 
+    function trade(uint amt, bool buy) public {
+        lp.trade(amt, buy);
+    }
+
     function sendAllTo(address who) public {
         lp.sendAllTo(who);
     }
@@ -121,25 +132,6 @@ contract LP is Test {
         emit log_named_uint(" pool.totalSupply()", pool.totalSupply());
     }
 
-
-    function trade(uint amt, bool buy) public {
-        address[] memory path = new address[](2);
-        (path[0], path[1]) = buy ? (address(token0), address(token1)) : (address(token1), address(token0));
-
-        univ2router.swapExactTokensForTokens(amt, 0, path, address(this), type(uint).max);
-    }
-
-    /*
-    function removeLiquidity(
-  address tokenA,
-  address tokenB,
-  uint liquidity,
-  uint amountAMin,
-  uint amountBMin,
-  address to,
-  uint deadline
-) external returns (uint amountA, uint amountB);
-    */
     function remove() public {
         IUniswapV2Pair pair = IUniswapV2Pair(univ2fac.getPair(address(token0), address(token1)));
         uint liq = pair.balanceOf(address(this));
@@ -149,6 +141,12 @@ contract LP is Test {
         univ2router.removeLiquidity(address(token0), address(token1), liq, 0, 0, address(this), type(uint).max);
     }
 
+    function trade(uint amt, bool buy) public {
+        address[] memory path = new address[](2);
+        (path[0], path[1]) = buy ? (address(token0), address(token1)) : (address(token1), address(token0));
+
+        univ2router.swapExactTokensForTokens(amt, 0, path, address(this), type(uint).max);
+    }
 
     function sendAllTo(address who) public {
         pool.transfer(who, pool.balanceOf(address(this)));

@@ -267,8 +267,6 @@ contract ZapTest_fork is Test {
     function test_fork_sellLP(bool token0, bool isImbalanced, bool imbalanceDirection) public {
         emit log_string("=== === SELL LP");
 
-//        if ((token0 != false || isImbalanced != true || imbalanceDirection != true)) return;
-
         if (isImbalanced)
             lp.trade(10 ether, imbalanceDirection);
 

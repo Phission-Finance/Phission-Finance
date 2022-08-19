@@ -70,7 +70,7 @@ contract TreasuryTest_fork is Test {
         lpLp.add(1 ether);
 
         (uint res0, uint res1,) = pool.getReserves();
-        wethOracle = new MockUniswapV2Oracle(f0, f1, 1 ether * res1 / res0, 1 ether * res0 / res1 );
+        wethOracle = new MockUniswapV2Oracle(f0, f1, (res1 << 112) / res0, (res0 << 112) / res1);
         lpOracle = new MockUniswapV2Oracle(lp0, lp1, 0, 0);
 
         treasury = new Treasury(sf, univ2fac, univ2router, gov, wethOracle, lpOracle, weth);
@@ -96,7 +96,7 @@ contract TreasuryTest_fork is Test {
     }
 
 
-    function test_redeem(bool token0) public {
+    function test_redeem(bool token0, uint treasuryTokens) public {
         MockOracle(address(o)).set(false, token0, !token0);
         //        MockOracle(address(o)).set(false, true, false);
 
@@ -106,7 +106,7 @@ contract TreasuryTest_fork is Test {
         f0.transfer(address(treasury), trAmt0);
         f1.transfer(address(treasury), trAmt1);
 
-        gov.mint(address(treasury), 0.5 ether);
+        gov.mint(address(treasury), treasuryTokens % (gov.MAX_SUPPLY() - gov.totalSupply()));
         gov.mint(address(this), 1 ether);
         gov.mint(address(1), 1 ether);
 
@@ -120,8 +120,13 @@ contract TreasuryTest_fork is Test {
         uint ethBal = address(this).balance;
         treasury.redeem(1 ether);
 
-        require(token0 ? approxEq(f0.balanceOf(address(this)) - bal0, trAmt0 / 2) : approxEq(f1.balanceOf(address(this)) - bal1, trAmt1 / 2), "111");
-        require(token0 ? f1.balanceOf(address(this)) == bal1 : f0.balanceOf(address(this)) == bal0, "222");
+        if (token0) {
+            require(f0.balanceOf(address(this)) - bal0 == trAmt0 / 2, "rev 1");
+            require(f1.balanceOf(address(this)) == bal1, "rev 2");
+        } else {
+            require(f1.balanceOf(address(this)) - bal1 == trAmt1 / 2, "rev 3");
+            require(f0.balanceOf(address(this)) == bal0, "rev 4");
+        }
     }
 
     function test_redeem_allAssets(bool token0) public {
@@ -164,7 +169,7 @@ contract TreasuryTest_fork is Test {
     }
 
 
-    function approxEq(uint a, uint b) internal returns (bool){
+    function approxEq(uint a, uint b) internal returns (bool) {
         emit log_named_uint("approxEq  a", a);
         emit log_named_uint("approxEq  b", b);
 
@@ -186,23 +191,45 @@ contract TreasuryTest_fork is Test {
 
 
     // TO LP
-    function test_convertToLp(bool token0) public {
+    function test_convertToLp(bool token0, bool isImbalanced, bool imbalanceDirection) public {
         MockOracle(address(o)).set(false, token0, !token0);
-        emit log_named_uint("wethOracle.ret0()",wethOracle.ret0());
-        emit log_named_uint("wethOracle.ret1()",wethOracle.ret1());
 
-        (uint trAmt0, uint trAmt1) = token0 ? (1e18, 1e17) : (1e16, 1e17);
+        if (isImbalanced)
+            lp.trade(10 ether, imbalanceDirection);
+
+        emit log_string("updated prices:");
+        lp.print_price();
+
+        if ((token0 != false || isImbalanced != true || imbalanceDirection != true)) return;
+
+         (uint trAmt0, uint trAmt1) = token0 ? (1e16, 1e15) : (1e15, 1e16);
+
 
         f0.transfer(address(treasury), trAmt0);
         f1.transfer(address(treasury), trAmt1);
 
+
+        /*
+            TODO: test when price moves since oracle update
+            TODO: test with higher slippage amounts
+        */
+
         treasury.intendConvertToLp();
-        cheat.warp(block.timestamp + 3 hours);
+        cheat.warp(block.timestamp + 8 hours);
+
+
+        (uint res0,uint res1,) = lp.pool().getReserves();
 
         uint tbal0Before = f0.balanceOf(address(treasury));
         uint tbal1Before = f1.balanceOf(address(treasury));
         uint lbalBefore = pool.balanceOf(address(this));
         uint ltbalBefore = pool.balanceOf(address(treasury));
+
+        bool t0First = (lp.pool().token0() == address(f0));
+        if (t0First)
+            wethOracle.set((res1 << 112) / res0, (res0 << 112) / res1);
+        else
+            wethOracle.set((res0 << 112) / res1, (res1 << 112) / res0);
 
         treasury.convertToLp();
 
@@ -220,14 +247,52 @@ contract TreasuryTest_fork is Test {
         emit log_named_uint("ltbalAfter", ltbalAfter);
         emit log_named_uint("lbalAfter", lbalAfter);
 
-        require(tbal0After <=1, "rev 0");
-        require(tbal1After <=1, "rev 1");
+        require(tbal0After <= 2, "rev 0");
+        require(tbal1After <= 2, "rev 1");
         require(tbal0After == 0 || tbal0Before == 0, "rev 2");
         require(ltbalBefore < ltbalAfter, "rev 3");
         require(lbalBefore < lbalAfter, "rev 4");
+    }
 
-        emit log_named_uint(">><<", 1e6 * (lbalAfter - lbalBefore) / (ltbalAfter - ltbalBefore));
 
-//        revert("%%%%%%%%%%%%%%%%%%");
+    function test_convertToLp_failsWithSlippage(bool token0, bool isImbalanced, bool imbalanceDirection) public {
+        MockOracle(address(o)).set(false, token0, !token0);
+
+        if (isImbalanced)
+            lp.trade(10 ether, imbalanceDirection);
+
+        emit log_string("updated prices:");
+        lp.print_price();
+
+        if ((token0 != false || isImbalanced != true || imbalanceDirection != true)) return;
+
+
+        (uint trAmt0, uint trAmt1) = token0 ? (1e16, 1e15) : (1e15, 1e16);
+
+        f0.transfer(address(treasury), trAmt0);
+        f1.transfer(address(treasury), trAmt1);
+
+
+        treasury.intendConvertToLp();
+        cheat.warp(block.timestamp + 8 hours);
+
+
+        (uint res0,uint res1,) = lp.pool().getReserves();
+
+
+        bool t0First = (lp.pool().token0() == address(f0));
+        if (t0First)
+            wethOracle.set((res1 << 112) / res0, (res0 << 112) / res1);
+        else
+            wethOracle.set((res0 << 112) / res1, (res1 << 112) / res0);
+
+        lp.trade(20 ether, !imbalanceDirection); // move pool away
+
+        // TODO: should revert
+        try treasury.convertToLp() {revert("should fail oracle price too far");} catch {}
+    }
+
+    function test_convertToLp2() public {
+        revert("not impl");
     }
 }

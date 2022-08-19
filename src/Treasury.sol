@@ -1,5 +1,7 @@
 pragma solidity ^0.8.0;
 
+import "forge-std/Test.sol";
+
 import "./Split.sol";
 import "./Factory.sol";
 import "./GovToken.sol";
@@ -11,7 +13,7 @@ import "../lib/utils/Math.sol";
 import "../lib/utils/IWETH.sol";
 import "./interfaces/IUniswapV2Oracle.sol";
 
-contract Treasury /* is Test*/ {
+contract Treasury is Test {
     IWETH weth;
     IOracle oracle;
     GovToken public gov;
@@ -86,8 +88,9 @@ contract Treasury /* is Test*/ {
 
     bool firstRedeem;
 
-    // redeem specific side?
     function redeem(uint256 _amt) public {
+        // => need to redeem all assets, as anything accrued right before merge would be stuck otherwise
+
         require(oracle.isExpired());
         bool redeemOn0 = oracle.isRedeemable(true);
 
@@ -119,7 +122,7 @@ contract Treasury /* is Test*/ {
 
 
     function redeemLPs(bool redeemOn0) internal {
-        // PHI-WETH
+        // PHI-WETH  ->   PHI & WETH
         uint govEthLiq = govEthPool.balanceOf(address(this));
         if (govEthLiq > 0) {
             govEthPool.approve(address(uniswapRouter), type(uint).max);
@@ -165,6 +168,7 @@ contract Treasury /* is Test*/ {
                 0, 0, address(this), type(uint).max);
         }
 
+        // TODO: just hardcode this to 1000?
         // burnt PHIs-PHIw
         uint b0 = govPool.balanceOf(address(0));
         if (b0 > 0) {
@@ -177,20 +181,21 @@ contract Treasury /* is Test*/ {
 
     uint treasuryLPRewardBps = 100; // = 1%
 
-    uint constant maxDiscount = 5000; // bps 5000 = 50%
+    uint constant maxSlippage = 1000; // = 10%
     uint constant auctionDuration = 12 hours;
+    uint constant warmUp = auctionDuration / 4;
 
     mapping(address => uint) convertersLp;
-    mapping(address => uint) convertersLpLp;
+    mapping(address => uint) convertersLp2;
 
     function intendConvertToLp() public {
         try wethOracle.update() {} catch {}
         convertersLp[msg.sender] = block.timestamp;
     }
 
-    function intendConvertToLpLp() public {
+    function intendConvertToLp2() public {
         try lpOracle.update() {} catch {}
-        convertersLpLp[msg.sender] = block.timestamp;
+        convertersLp2[msg.sender] = block.timestamp;
     }
 
     // auction: expects pool to already have liquidity
@@ -199,99 +204,57 @@ contract Treasury /* is Test*/ {
         require(!oracle.isExpired());
 
         uint elapsed = block.timestamp - convertersLp[msg.sender];
-        require(elapsed >= auctionDuration / 4 && elapsed < auctionDuration, "not in window");
+        require(elapsed >= warmUp && elapsed < auctionDuration, "not in window");
 
         splitEth();
 
         try wethOracle.update() {} catch {}
-        (uint balF0,uint balF1) = (token0.balanceOf(address(this)), token1.balanceOf(address(this)));
-        (uint balR0, uint balR1,) = pool.getReserves();
-        if (!token0First) (balR0,  balR1) = (balR1, balR0);
+        (uint bal0,uint bal1) = (token0.balanceOf(address(this)), token1.balanceOf(address(this)));
+        (uint res0, uint res1,) = pool.getReserves();
+        if (!token0First) (res0,  res1) = (res1, res0);
 
 
-//        emit log_named_uint("balF0", balF0);
-//        emit log_named_uint("balF1", balF1);
-//        emit log_named_uint("balR0", balR0);
-//        emit log_named_uint("balR1", balR1);
+        emit log_named_uint("bal0", bal0);
+        emit log_named_uint("bal1", bal1);
+        emit log_named_uint("res0", res0);
+        emit log_named_uint("res1", res1);
 
+        bool excessIn0 = bal0 * res1 > bal1 * res0;
 
-        bool excessIn0 = balF0 * balR1 > balF1 * balR0;
+        if (!excessIn0) (res0, res1, bal0, bal1) = (res1, res0, bal1, bal0);
 
-        // TODO: impl for !excessIn0 <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
-        //        require(excessIn0, "!excessIn0");
-        if (!excessIn0) (balR0, balR1, balF0, balF1) = (balR1, balR0, balF1, balF0);
+        uint num = (4 * bal0 * res1 * 1000 / 997 + res0 * bal1 * (1000 - 997) ** 2 / 997 ** 2 + res0 * res1 * (1000 + 997) ** 2 / 997 ** 2);
+        uint amtIn = (Math.sqrt((res0 * num) / (res1 + bal1)) - res0 * (1000 + 997) / 997) / 2;
 
-        //        uint nb = balR0 * (balF1 + 1000 * balR1 / 997 + balR1) - balF0 * balR1;
-        //        uint ac = (balF0 * balR1 - balF1 * balR0) * balR0 * 1000 / 997 * balR1;
-        //        uint amtIn = (Math.sqrt(nb * nb + 4 * ac) - nb) / 2 / balR1;
+        uint oracleAmtOut = wethOracle.consult(address(excessIn0 ? token0 : token1), amtIn);
 
+        emit log_named_uint("oracleAmtOut", oracleAmtOut);
 
+        require(oracleAmtOut != 0, "twap price = 0");
 
-//        emit log_string("point0");
-//        uint nb = (balR0 * 1000 / 997 + balR1 * (balF1 + balR0) / (balF1 + balR1)) / 2;
-//        emit log_named_uint("nb", nb);
-//        emit log_string("point1");
-//        uint amtIn;
-        //        bool bal0gt1 = balF0 > balF1;
-        //        if (bal0gt1) {
-        //            emit log_string("point2a");
-        //
-        //            uint ac = balR1 * balR0 * 1000 / 997 * (balF0 - balF1) / 4 / (balF1 + balR1);
-        //            emit log_named_uint("ac", ac);
-        //            emit log_string("point3a");
-        //            amtIn = (Math.sqrt(nb * nb + 4 * ac) - nb);
-        //        } else {
-        //            emit log_string("point2b");
-        //            uint ac = balR1 * balR0 * 1000 / 997 * (balF1 - balF0) / 4 / (balF1 + balR1);
-        //            emit log_named_uint("ac", ac);
-        //            //            uint ac = balR1 * balR0 * (balF1 - balF0) * (balF1 + balR1); // / 4 / (balF1 + balR1)**2
-        //            emit log_string("point3b");
-        //            amtIn = (nb + Math.sqrt(nb * nb - 4 * ac));
-        //        }
+        uint minAmtOut = oracleAmtOut * (10000 - maxSlippage) / 10000;
+        uint amtOut = UniswapV2Utils.getAmountOut(amtIn, res0, res1);
 
-        uint amtIn = (Math.sqrt((balR0 * (4 * balF0 * balR1 * 1000 / 997 + balR0 * balF1 * (1000 - 997) ** 2 / 997 ** 2 + balR0 * balR1 * (1000 + 997) ** 2 / 997 ** 2)) / (balR1 + balF1)) - balR0 * (1000 + 997) / 997) / 2;
+        require(amtOut >= minAmtOut, "rebalancing price not accepted");
 
-//        emit log_named_uint("wethOracle.consult(address(excessIn0 ? token1 : token0), amtIn)", wethOracle.consult(address(excessIn0 ? token1 : token0), amtIn));
-//        emit log_named_uint("wethOracle.consult(address(!excessIn0 ? token1 : token0), amtIn)", wethOracle.consult(address(!excessIn0 ? token1 : token0), amtIn));
-//
-//        emit log_named_uint("amtIn", amtIn);
+        uint b00;
+        uint b11;
 
-        uint twapPrice = wethOracle.consult(address(excessIn0 ? token1 : token0), amtIn);
-        require(twapPrice != 0, "twap price = 0");
-
-        uint minAmtOut = twapPrice * (10000 - 500) / 10000;
-        // 5% slippage on twap price
-
-        uint amtOut = UniswapV2Utils.getAmountOut(amtIn, balR0, balR1);
-
-//        emit log_named_uint("minAmtOut", minAmtOut);
-//        emit log_named_uint("twapPrice", twapPrice);
-//        emit log_named_uint("amtOut", amtOut);
-
-
-        require(amtOut > minAmtOut, "rebalancing price not accepted");
-
-        (excessIn0 ? token0 : token1).transfer(address(pool), amtIn);
         if (excessIn0) {
+            token0.transfer(address(pool), amtIn);
             pool.swap(token0First ? 0 : amtOut, token0First ? amtOut : 0, address(this), "");
+            (b00,  b11) = (bal0 - amtIn, bal1 + amtOut);
         } else {
+            token1.transfer(address(pool), amtIn);
             pool.swap(token0First ? amtOut : 0, token0First ? 0 : amtOut, address(this), "");
+            (b00,  b11) = (bal1 + amtOut, bal0 - amtIn);
         }
 
-        (uint b00, uint b11) = excessIn0 ? (balF0 - amtIn, balF1 + amtOut) : (balF1 + amtOut, balF0 - amtIn);
-
-//        emit log_named_uint("b00", b00);
-//        emit log_named_uint("b11", b11);
-
-//        emit log_named_uint("b0", token0.balanceOf(address(this)));
-//        emit log_named_uint("b1", token1.balanceOf(address(this)));
-
-        uint balLp0 = pool.balanceOf(address(this));
-        uniswapRouter.addLiquidity(address(token0), address(token1),
+        (, , uint liquidity) = uniswapRouter.addLiquidity(address(token0), address(token1),
             b00, b11, 0, 0,
             address(this), type(uint).max);
 
-        uint reward = (pool.balanceOf(address(this)) - balLp0) * treasuryLPRewardBps / 10000;
+        uint reward = liquidity * treasuryLPRewardBps / 10000;
         pool.transfer(msg.sender, reward);
     }
 
@@ -307,18 +270,18 @@ contract Treasury /* is Test*/ {
     function convertToLp2() public {
         require(!oracle.isExpired());
 
-        uint elapsed = block.timestamp - convertersLp[msg.sender];
-        require(elapsed >= auctionDuration / 4 && elapsed < auctionDuration, "not in window");
+        uint elapsed = block.timestamp - convertersLp2[msg.sender];
+        require(elapsed >= warmUp && elapsed < auctionDuration, "not in window");
 
         uint lpBal = lpPool.balanceOf(address(this));
         if (lpBal > 0) lpSplit.mint(lpBal);
 
         try lpOracle.update() {} catch {}
         (uint balLp0,uint balLp1) = (lp0.balanceOf(address(this)), lp1.balanceOf(address(this)));
-        (uint112 balR0, uint112 balR1,) = lpPool.getReserves();
-        if (!lp0First) (balR0,  balR1) = (balR1, balR0);
+        (uint112 res0, uint112 res1,) = lpPool.getReserves();
+        if (!lp0First) (res0,  res1) = (res1, res0);
 
-        bool excessIn0 = balLp0 * balR1 > balLp1 * balR0;
+        bool excessIn0 = balLp0 * res1 > balLp1 * res0;
 
         // TODO: implement
 
