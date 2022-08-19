@@ -41,11 +41,9 @@ contract ZapTest_fork is Test {
 
         lp.sendTo(address(lpLp), 1 ether);
         lpLp.add(1 ether);
-
-
-        MockUniswapV2Oracle wethOracle = new MockUniswapV2Oracle(f0, f1, 0, 0);
-        MockUniswapV2Oracle lpOracle = new MockUniswapV2Oracle(lpLp.t0(), lpLp.t1(), 0, 0);
-
+        
+        MockUniswapV2Oracle wethOracle = new MockUniswapV2Oracle(lp.pool().token0(), lp.pool().token1(), 0, 0);
+        MockUniswapV2Oracle lpOracle = new MockUniswapV2Oracle(lpLp.pool().token0(), lpLp.pool().token1(), 0, 0);
 
         gov = new GovToken();
         sf.create(IERC20(address(gov)));
