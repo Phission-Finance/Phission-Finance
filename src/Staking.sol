@@ -10,12 +10,8 @@ contract Staking is StakingRewards {
         address _rewardsDistribution,
         address _rewardsToken,
         address _stakingToken
-    ) StakingRewards(_owner,
-        _rewardsDistribution,
-        _rewardsToken,
-        _stakingToken
-    ) public {
-
-
-    }
+    )
+        public
+        StakingRewards(_owner, _rewardsDistribution, _rewardsToken, _stakingToken)
+    {}
 }

@@ -2,9 +2,9 @@ pragma solidity ^0.8.0;
 
 contract ForkOracle {
     bool expired = false;
-    uint deployTime;
+    uint256 deployTime;
 
-    uint MIN_RANDAO = 18446744073709551615; // TODO: set to max uint64 for tests // live = 2**128
+    uint256 MIN_RANDAO = 18446744073709551615; // TODO: set to max uint64 for tests // live = 2**128
 
     constructor() {
         deployTime = block.timestamp;

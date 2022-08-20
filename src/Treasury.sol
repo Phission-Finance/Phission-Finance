@@ -5,13 +5,15 @@ import "forge-std/Test.sol";
 import "./Split.sol";
 import "./Factory.sol";
 import "./GovToken.sol";
+import "./interfaces/IUniswapV2Oracle.sol";
+
 import "../lib/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
 import "../lib/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
 import "../lib/v2-periphery/contracts/interfaces/IUniswapV2Router02.sol";
 import "../lib/utils/UniswapV2Utils.sol";
 import "../lib/utils/Math.sol";
 import "../lib/utils/IWETH.sol";
-import "./interfaces/IUniswapV2Oracle.sol";
+import "../lib/prb-math/contracts/PRBMath.sol";
 
 contract Treasury is Test {
     IWETH weth;
@@ -20,7 +22,6 @@ contract Treasury is Test {
     fERC20 gov0;
     fERC20 gov1;
     IUniswapV2Pair govPool;
-
 
     Split wethSplit;
     fERC20 token0;
@@ -38,17 +39,23 @@ contract Treasury is Test {
 
     IUniswapV2Pair govEthPool;
 
+    IUniswapV2Router02 uniswapRouter;
 
-    IUniswapV2Router02  uniswapRouter;
-
-
-    constructor(SplitFactory _factory, IUniswapV2Factory _uniswapFactory, IUniswapV2Router02 _uniswapRouter, GovToken _gov, IUniswapV2Oracle _wethOracle, IUniswapV2Oracle _lpOracle, IWETH _weth) {
+    constructor(
+        SplitFactory _factory,
+        IUniswapV2Factory _uniswapFactory,
+        IUniswapV2Router02 _uniswapRouter,
+        GovToken _gov,
+        IUniswapV2Oracle _wethOracle,
+        IUniswapV2Oracle _lpOracle,
+        IWETH _weth
+    ) {
         oracle = _factory.oracle();
         weth = IWETH(_weth);
 
         wethSplit = _factory.splits(weth);
         (token0, token1) = wethSplit.futures();
-        weth.approve(address(wethSplit), type(uint).max);
+        weth.approve(address(wethSplit), type(uint256).max);
 
         uniswapRouter = _uniswapRouter;
 
@@ -56,20 +63,20 @@ contract Treasury is Test {
         try wethOracle.update() {} catch {}
 
         pool = IUniswapV2Pair(_uniswapFactory.getPair(address(token0), address(token1)));
-        token0.approve(address(_uniswapRouter), type(uint).max);
-        token1.approve(address(_uniswapRouter), type(uint).max);
+        token0.approve(address(_uniswapRouter), type(uint256).max);
+        token1.approve(address(_uniswapRouter), type(uint256).max);
         token0First = address(token0) == pool.token0();
 
         lpSplit = _factory.splits(IERC20(address(pool)));
         (lp0, lp1) = lpSplit.futures();
-        pool.approve(address(lpSplit), type(uint).max);
+        pool.approve(address(lpSplit), type(uint256).max);
 
         lpOracle = _lpOracle;
         try lpOracle.update() {} catch {}
 
         lpPool = IUniswapV2Pair(_uniswapFactory.getPair(address(lp0), address(lp1)));
-        lp0.approve(address(_uniswapRouter), type(uint).max);
-        lp1.approve(address(_uniswapRouter), type(uint).max);
+        lp0.approve(address(_uniswapRouter), type(uint256).max);
+        lp1.approve(address(_uniswapRouter), type(uint256).max);
         lp0First = address(lp0) == pool.token0();
 
         gov = _gov;
@@ -78,124 +85,173 @@ contract Treasury is Test {
 
         // requires gov pool to exist
         govPool = IUniswapV2Pair(UniswapV2Utils.pairFor(address(_uniswapFactory), address(gov0), address(gov1)));
-        gov0.approve(address(_uniswapRouter), type(uint).max);
-        gov1.approve(address(_uniswapRouter), type(uint).max);
+        gov0.approve(address(_uniswapRouter), type(uint256).max);
+        gov1.approve(address(_uniswapRouter), type(uint256).max);
 
         govEthPool = IUniswapV2Pair(UniswapV2Utils.pairFor(address(_uniswapFactory), address(gov), address(weth)));
-        gov.approve(address(_uniswapRouter), type(uint).max);
-        weth.approve(address(_uniswapRouter), type(uint).max);
+        gov.approve(address(_uniswapRouter), type(uint256).max);
+        weth.approve(address(_uniswapRouter), type(uint256).max);
     }
+
+    receive() external payable {}
 
     bool firstRedeem;
 
     function redeem(uint256 _amt) public {
         // => need to redeem all assets, as anything accrued right before merge would be stuck otherwise
+        emit log_named_uint("_amt", _amt);
+
+        emit log_named_uint("gov0.balanceOf(address(this))", gov0.balanceOf(address(this)));
+        emit log_named_uint("gov1.balanceOf(address(this))", gov1.balanceOf(address(this)));
+        emit log_named_uint("gov.balanceOf(address(this))", gov.balanceOf(address(this)));
 
         require(oracle.isExpired());
         bool redeemOn0 = oracle.isRedeemable(true);
 
         if (!firstRedeem) {
             firstRedeem = true;
-            redeemLPs(redeemOn0);
+            unwind(redeemOn0);
         }
 
-        uint total = gov.totalSupply() - gov.balanceOf(address(this));
-        uint total0 = total - gov0.balanceOf(address(this)) - burntLP0;
-        uint total1 = total - gov1.balanceOf(address(this)) - burntLP1;
+        emit log_named_uint("gov0.balanceOf(address(this))", gov0.balanceOf(address(this)));
+        emit log_named_uint("gov1.balanceOf(address(this))", gov1.balanceOf(address(this)));
+        emit log_named_uint("gov.balanceOf(address(this))", gov.balanceOf(address(this)));
+
+        uint256 total = gov.totalSupply() - gov.balanceOf(address(this));
+
+        emit log_named_uint("total init", total);
+
+        // need a function to calculate underlyings
+        // burnt from each side because of gov-eth lp and govw/s lp
+
+        total -=
+            (redeemOn0 ? (gov0.balanceOf(address(this)) + burntLPGov0) : (gov1.balanceOf(address(this)) + burntLPGov1));
+
+        // 3100
+
+        emit log_named_uint("total", total);
 
         gov.transferFrom(msg.sender, address(this), _amt);
 
-        token0.transfer(msg.sender, _amt * token0.balanceOf(address(this)) / total0);
-        token1.transfer(msg.sender, _amt * token1.balanceOf(address(this)) / total1);
+        // token0.transfer(msg.sender, (_amt * token0.balanceOf(address(this))) / total0);
+        // token1.transfer(msg.sender, (_amt * token1.balanceOf(address(this))) / total1);
+
+        emit log_named_uint("address(this).balance", address(this).balance);
+        emit log_named_uint("total", total);
+
+        uint256 returnETH = PRBMath.mulDiv(_amt, address(this).balance, total);
+        emit log_named_uint("returnETH", returnETH);
+
+        (bool success,) = msg.sender.call{value: returnETH}("");
+        require(success);
+
+        emit log_named_uint("address(this).balance", address(this).balance);
     }
 
-    uint burntLP0;
-    uint burntLP1;
+    uint256 burntLPGov0;
+    uint256 burntLPGov1;
 
     // call to create LP tokens from contents, and the excess goes to the caller of the contract
     // fill with the token it's lacking from the ratio
     // flash loan,
 
     // => LP   caller gets a cut of LP amt outputted, fees accrue in the token missing
-    // => LP^2 caller gets a cut of LP amt outputted, fees accrue in the token missing
 
-
-
-    function redeemLPs(bool redeemOn0) internal {
+    function unwind(bool redeemOn0) internal {
         // PHI-WETH  ->   PHI & WETH
-        uint govEthLiq = govEthPool.balanceOf(address(this));
+        uint256 govEthLiq = govEthPool.balanceOf(address(this));
         if (govEthLiq > 0) {
-            govEthPool.approve(address(uniswapRouter), type(uint).max);
-            uniswapRouter.removeLiquidity(address(gov), address(weth),
-                govEthLiq,
-                0, 0, address(this), type(uint).max);
+            govEthPool.approve(address(uniswapRouter), type(uint256).max);
+            uniswapRouter.removeLiquidity(
+                address(gov), address(weth), govEthLiq, 0, 0, address(this), type(uint256).max
+            );
         }
 
-        // ETH & WETH -> WETHs & WETHw
-        splitEth();
-
-        // LPs-LPw
-        uint lpLiq = lpPool.balanceOf(address(this));
+        // LP^2 -> LPs-LPw
+        uint256 lpLiq = lpPool.balanceOf(address(this));
         if (lpLiq > 0) {
-            lpPool.approve(address(uniswapRouter), type(uint).max);
-            uniswapRouter.removeLiquidity(address(lp0), address(lp1),
-                lpLiq,
-                0, 0, address(this), type(uint).max);
+            lpPool.approve(address(uniswapRouter), type(uint256).max);
+            uniswapRouter.removeLiquidity(address(lp0), address(lp1), lpLiq, 0, 0, address(this), type(uint256).max);
         }
 
-        // redeem excess lps/lpw for lp
-        uint lpf = redeemOn0 ? lp0.balanceOf(address(this)) : lp1.balanceOf(address(this));
+        // LPs-LPw -> LP
+        uint256 lpf = (redeemOn0 ? lp0 : lp1).balanceOf(address(this));
         if (lpf > 0) {
-            (redeemOn0 ? lp0 : lp1).approve(address(lpSplit), type(uint).max);
+            (redeemOn0 ? lp0 : lp1).approve(address(lpSplit), type(uint256).max);
             lpSplit.redeem(lpf);
         }
 
-        // WETHs-WETHw
-        uint liq = pool.balanceOf(address(this));
+        // LP -> WETHs/w
+        uint256 liq = pool.balanceOf(address(this));
         if (liq > 0) {
-            pool.approve(address(uniswapRouter), type(uint).max);
-            uniswapRouter.removeLiquidity(address(token0), address(token1),
-                liq,
-                0, 0, address(this), type(uint).max);
+            pool.approve(address(uniswapRouter), type(uint256).max);
+            uniswapRouter.removeLiquidity(address(token0), address(token1), liq, 0, 0, address(this), type(uint256).max);
         }
 
         // PHIs-PHIw
-        uint govLiq = govPool.balanceOf(address(this));
+        uint256 govLiq = govPool.balanceOf(address(this));
         if (govLiq > 0) {
-            govPool.approve(address(uniswapRouter), type(uint).max);
-            uniswapRouter.removeLiquidity(address(gov0), address(gov1),
-                govLiq,
-                0, 0, address(this), type(uint).max);
+            govPool.approve(address(uniswapRouter), type(uint256).max);
+            uniswapRouter.removeLiquidity(address(gov0), address(gov1), govLiq, 0, 0, address(this), type(uint256).max);
         }
 
-        // TODO: just hardcode this to 1000?
         // burnt PHIs-PHIw
-        uint b0 = govPool.balanceOf(address(0));
-        if (b0 > 0) {
-            (uint res0, uint res1,) = govPool.getReserves();
+        uint256 bsw0 = govPool.balanceOf(address(0));
+        if (bsw0 > 0) {
+            (uint256 res0, uint256 res1,) = govPool.getReserves();
+            (uint256 bal0, uint256 bal1) = computeLiquidityValue(res0, res1, govPool.totalSupply(), bsw0, false, 0);
 
-            burntLP0 = b0 * b0 / res1;
-            burntLP1 = b0 * b0 / res0;
+            bool token0First = govPool.token0() == address(gov0);
+            burntLPGov0 = token0First ? bal0 : bal1;
+            burntLPGov1 = token0First ? bal1 : bal0;
+
+            emit log_named_uint("res0", res0);
+            emit log_named_uint("res1", res1);
+            emit log_named_uint("bsw0", bsw0);
+            emit log_named_uint("burntLPGov0", burntLPGov0);
+            emit log_named_uint("burntLPGov1", burntLPGov1);
+        }
+
+        uint256 b0 = govEthPool.balanceOf(address(0));
+        if (b0 > 0) {
+            (uint256 res0, uint256 res1,) = govEthPool.getReserves();
+            (uint256 bal0, uint256 bal1) = computeLiquidityValue(res0, res1, govEthPool.totalSupply(), b0, false, 0);
+
+            uint256 res = govEthPool.token0() == address(gov) ? bal0 : bal1;
+
+            burntLPGov0 += res;
+            burntLPGov1 += res;
+
+            emit log_named_uint("res0", res0);
+            emit log_named_uint("res1", res1);
+            emit log_named_uint("b0", b0);
+            emit log_named_uint("burntLPGov0", burntLPGov0);
+            emit log_named_uint("burntLPGov1", burntLPGov1);
+        }
+
+        uint256 futAmt = (redeemOn0 ? token0 : token1).balanceOf(address(this));
+        (redeemOn0 ? token0 : token1).approve(address(wethSplit), type(uint256).max);
+        wethSplit.redeem(futAmt);
+
+        // WETH -> ETH
+        uint256 wethBal = weth.balanceOf(address(this));
+        if (wethBal > 0) {
+            weth.withdraw(wethBal);
         }
     }
 
-    uint treasuryLPRewardBps = 100; // = 1%
+    uint256 treasuryLPRewardBps = 100; // = 1%
 
-    uint constant maxSlippage = 1000; // = 10%
-    uint constant auctionDuration = 12 hours;
-    uint constant warmUp = auctionDuration / 4;
+    uint256 constant maxSlippage = 1000; // = 10%
+    uint256 constant auctionDuration = 12 hours;
+    uint256 constant warmUp = auctionDuration / 4;
 
-    mapping(address => uint) convertersLp;
-    mapping(address => uint) convertersLp2;
+    mapping(address => uint256) convertersLp;
 
     function intendConvertToLp() public {
         try wethOracle.update() {} catch {}
-        convertersLp[msg.sender] = block.timestamp;
-    }
-
-    function intendConvertToLp2() public {
         try lpOracle.update() {} catch {}
-        convertersLp2[msg.sender] = block.timestamp;
+        convertersLp[msg.sender] = block.timestamp;
     }
 
     // auction: expects pool to already have liquidity
@@ -203,16 +259,17 @@ contract Treasury is Test {
     function convertToLp() public {
         require(!oracle.isExpired());
 
-        uint elapsed = block.timestamp - convertersLp[msg.sender];
+        uint256 elapsed = block.timestamp - convertersLp[msg.sender];
         require(elapsed >= warmUp && elapsed < auctionDuration, "not in window");
 
         splitEth();
 
         try wethOracle.update() {} catch {}
-        (uint bal0,uint bal1) = (token0.balanceOf(address(this)), token1.balanceOf(address(this)));
-        (uint res0, uint res1,) = pool.getReserves();
-        if (!token0First) (res0,  res1) = (res1, res0);
-
+        (uint256 bal0, uint256 bal1) = (token0.balanceOf(address(this)), token1.balanceOf(address(this)));
+        (uint256 res0, uint256 res1,) = pool.getReserves();
+        if (!token0First) {
+            (res0, res1) = (res1, res0);
+        }
 
         emit log_named_uint("bal0", bal0);
         emit log_named_uint("bal1", bal1);
@@ -221,70 +278,81 @@ contract Treasury is Test {
 
         bool excessIn0 = bal0 * res1 > bal1 * res0;
 
-        if (!excessIn0) (res0, res1, bal0, bal1) = (res1, res0, bal1, bal0);
+        if (!excessIn0) {
+            (res0, res1, bal0, bal1) = (res1, res0, bal1, bal0);
+        }
 
-        uint num = (4 * bal0 * res1 * 1000 / 997 + res0 * bal1 * (1000 - 997) ** 2 / 997 ** 2 + res0 * res1 * (1000 + 997) ** 2 / 997 ** 2);
-        uint amtIn = (Math.sqrt((res0 * num) / (res1 + bal1)) - res0 * (1000 + 997) / 997) / 2;
+        uint256 num = (
+            (4 * bal0 * res1 * 1000) / 997 + (res0 * bal1 * (1000 - 997) ** 2) / 997 ** 2
+                + (res0 * res1 * (1000 + 997) ** 2) / 997 ** 2
+        );
+        uint256 amtIn = (Math.sqrt((res0 * num) / (res1 + bal1)) - (res0 * (1000 + 997)) / 997) / 2;
 
-        uint oracleAmtOut = wethOracle.consult(address(excessIn0 ? token0 : token1), amtIn);
+        uint256 oracleAmtOut = wethOracle.consult(address(excessIn0 ? token0 : token1), amtIn);
 
         emit log_named_uint("oracleAmtOut", oracleAmtOut);
 
         require(oracleAmtOut != 0, "twap price = 0");
 
-        uint minAmtOut = oracleAmtOut * (10000 - maxSlippage) / 10000;
-        uint amtOut = UniswapV2Utils.getAmountOut(amtIn, res0, res1);
+        uint256 minAmtOut = (oracleAmtOut * (10000 - maxSlippage)) / 10000;
+        uint256 amtOut = UniswapV2Utils.getAmountOut(amtIn, res0, res1);
 
         require(amtOut >= minAmtOut, "rebalancing price not accepted");
 
-        uint b00;
-        uint b11;
+        uint256 b00;
+        uint256 b11;
 
         if (excessIn0) {
             token0.transfer(address(pool), amtIn);
             pool.swap(token0First ? 0 : amtOut, token0First ? amtOut : 0, address(this), "");
-            (b00,  b11) = (bal0 - amtIn, bal1 + amtOut);
+            (b00, b11) = (bal0 - amtIn, bal1 + amtOut);
         } else {
             token1.transfer(address(pool), amtIn);
             pool.swap(token0First ? amtOut : 0, token0First ? 0 : amtOut, address(this), "");
-            (b00,  b11) = (bal1 + amtOut, bal0 - amtIn);
+            (b00, b11) = (bal1 + amtOut, bal0 - amtIn);
         }
 
-        (, , uint liquidity) = uniswapRouter.addLiquidity(address(token0), address(token1),
-            b00, b11, 0, 0,
-            address(this), type(uint).max);
+        (,, uint256 liquidity) =
+            uniswapRouter.addLiquidity(address(token0), address(token1), b00, b11, 0, 0, address(this), type(uint256).max);
 
-        uint reward = liquidity * treasuryLPRewardBps / 10000;
+        uint256 reward = (liquidity * treasuryLPRewardBps) / 10000;
         pool.transfer(msg.sender, reward);
     }
 
     function splitEth() internal {
-        uint ethBal = address(this).balance;
-        if (ethBal > 0) weth.deposit{value : ethBal}();
+        uint256 ethBal = address(this).balance;
+        if (ethBal > 0) {
+            weth.deposit{value: ethBal}();
+        }
 
-        uint wethBal = weth.balanceOf(address(this));
-        if (wethBal > 0) wethSplit.mint(wethBal);
+        uint256 wethBal = weth.balanceOf(address(this));
+        if (wethBal > 0) {
+            wethSplit.mint(wethBal);
+        }
     }
+}
 
-
-    function convertToLp2() public {
-        require(!oracle.isExpired());
-
-        uint elapsed = block.timestamp - convertersLp2[msg.sender];
-        require(elapsed >= warmUp && elapsed < auctionDuration, "not in window");
-
-        uint lpBal = lpPool.balanceOf(address(this));
-        if (lpBal > 0) lpSplit.mint(lpBal);
-
-        try lpOracle.update() {} catch {}
-        (uint balLp0,uint balLp1) = (lp0.balanceOf(address(this)), lp1.balanceOf(address(this)));
-        (uint112 res0, uint112 res1,) = lpPool.getReserves();
-        if (!lp0First) (res0,  res1) = (res1, res0);
-
-        bool excessIn0 = balLp0 * res1 > balLp1 * res0;
-
-        // TODO: implement
-
-        revert("not impl");
+function computeLiquidityValue(
+    uint256 reservesA,
+    uint256 reservesB,
+    uint256 totalSupply,
+    uint256 liquidityAmount,
+    bool feeOn,
+    uint256 kLast
+)
+    pure
+    returns (uint256 tokenAAmount, uint256 tokenBAmount)
+{
+    if (feeOn && kLast > 0) {
+        uint256 rootK = Math.sqrt(reservesA * reservesB);
+        uint256 rootKLast = Math.sqrt(kLast);
+        if (rootK > rootKLast) {
+            uint256 numerator1 = totalSupply;
+            uint256 numerator2 = rootK - rootKLast;
+            uint256 denominator = rootK * 5 + rootKLast;
+            uint256 feeLiquidity = PRBMath.mulDiv(numerator1, numerator2, denominator);
+            totalSupply = totalSupply + feeLiquidity;
+        }
     }
+    return ((reservesA * liquidityAmount) / totalSupply, (reservesB * liquidityAmount) / totalSupply);
 }
