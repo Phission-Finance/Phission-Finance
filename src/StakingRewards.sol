@@ -33,12 +33,10 @@ contract StakingRewards is IStakingRewards, RewardsDistributionRecipient, Reentr
 
     /* ========== CONSTRUCTOR ========== */
 
-    constructor(
-        address _owner,
-        address _rewardsDistribution,
-        address _rewardsToken,
-        address _stakingToken
-    ) public Owned(_owner) {
+    constructor(address _owner, address _rewardsDistribution, address _rewardsToken, address _stakingToken)
+        public
+        Owned(_owner)
+    {
         rewardsToken = IERC20(_rewardsToken);
         stakingToken = IERC20(_stakingToken);
         rewardsDistribution = _rewardsDistribution;
@@ -62,8 +60,7 @@ contract StakingRewards is IStakingRewards, RewardsDistributionRecipient, Reentr
         if (_totalSupply == 0) {
             return rewardPerTokenStored;
         }
-        return
-        rewardPerTokenStored.add(
+        return rewardPerTokenStored.add(
             lastTimeRewardApplicable().sub(lastUpdateTime).mul(rewardRate).mul(1e18).div(_totalSupply)
         );
     }
@@ -123,7 +120,7 @@ contract StakingRewards is IStakingRewards, RewardsDistributionRecipient, Reentr
         // This keeps the reward rate in the right range, preventing overflows due to
         // very high values of rewardRate in the earned and rewardsPerToken functions;
         // Reward + leftover must be less than 2^256 / 10^18 to avoid overflow.
-        uint balance = rewardsToken.balanceOf(address(this));
+        uint256 balance = rewardsToken.balanceOf(address(this));
         require(rewardRate <= balance.div(rewardsDuration), "Provided reward too high");
 
         lastUpdateTime = block.timestamp;

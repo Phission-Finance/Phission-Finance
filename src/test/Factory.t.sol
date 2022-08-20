@@ -14,8 +14,8 @@ contract SplitTest_fork is Test {
     IOracle o;
     Split s;
 
-    function setUp()public {
-        o = IOracle(address( new MockOracle(false, true, false)));
+    function setUp() public {
+        o = IOracle(address(new MockOracle(false, true, false)));
         s = new Split(weth, o);
     }
 }
