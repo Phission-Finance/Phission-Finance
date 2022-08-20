@@ -25,7 +25,11 @@ contract MockOracle is IOracle {
         return ret0;
     }
 
-    function isRedeemable(bool future0) public view returns (bool) {
-        return future0 ? ret1 : ret2;
+    function isPoS() public view returns (bool) {
+        return ret1;
+    }
+
+    function isPoWFork() public view returns (bool) {
+        return ret2;
     }
 }

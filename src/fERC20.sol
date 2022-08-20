@@ -5,26 +5,32 @@ import "./Split.sol";
 import "./Oracle.sol";
 import "./interfaces/IOracle.sol";
 
-function suffix(string memory str, bool future0, bool name) pure returns (string memory) {
+enum FutureType {
+    PoS,
+    PoW
+}
+
+function suffix(string memory str, bool isPos, bool name) pure returns (string memory) {
     return
         name
-        ? string(abi.encodePacked(str, future0 ? " POS" : " POW"))
-        : string(abi.encodePacked(str, future0 ? "s" : "w"));
+        ? string(abi.encodePacked(str, isPos ? " POS" : " POW"))
+        : string(abi.encodePacked(str, isPos ? "s" : "w"));
 }
 
 contract fERC20 is ERC20 {
-    bool future0;
-    address owner;
-    IOracle oracle;
+    
+    FutureType public immutable futureType;
+    address public owner;
+    IOracle public oracle;
 
-    constructor(IERC20 _underlying, IOracle _oracle, bool _future0)
+    constructor(IERC20 _underlying, IOracle _oracle, bool isPos)
         ERC20(
-            suffix(ERC20(address(_underlying)).name(), _future0, true),
-            suffix(ERC20(address(_underlying)).symbol(), _future0, false)
+            suffix(ERC20(address(_underlying)).name(), isPos, true),
+            suffix(ERC20(address(_underlying)).symbol(), isPos, false)
         )
     {
         owner = msg.sender;
-        future0 = _future0;
+        futureType = isPos ? FutureType.PoS: FutureType.PoW;
         oracle = _oracle;
     }
 
@@ -41,8 +47,13 @@ contract fERC20 is ERC20 {
         _burn(from, wad);
     }
 
+    function isRedeemable() public returns (bool) {
+        bool redeemable = futureType == FutureType.PoS ? oracle.isPoS() : oracle.isPoWFork();
+        return redeemable || oracle.isExpired();
+    }
+
     function _afterTokenTransfer(address from, address to, uint256 amount) internal override {
-        if (to != address(0) && oracle.isExpired() && !oracle.isRedeemable(future0)) {
+        if (to != address(0) && !isRedeemable()) {
             unchecked {
                 _burn(to, amount);
             }

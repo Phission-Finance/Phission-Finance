@@ -52,7 +52,8 @@ contract Treasury is Test {
         weth = IWETH(_weth);
 
         wethSplit = _factory.splits(weth);
-        (token0, token1) = wethSplit.futures();
+        Futures memory _futures = wethSplit.futures();
+        (token0, token1) = (_futures.PoS, _futures.PoW);
         weth.approve(address(wethSplit), type(uint256).max);
 
         uniswapRouter = _uniswapRouter;
@@ -66,7 +67,8 @@ contract Treasury is Test {
         token0First = address(token0) == pool.token0();
 
         lpSplit = _factory.splits(IERC20(address(pool)));
-        (lp0, lp1) = lpSplit.futures();
+        _futures = lpSplit.futures();
+        (lp0, lp1) = (_futures.PoS, _futures.PoW);
         pool.approve(address(lpSplit), type(uint256).max);
 
         lpOracle = _lpOracle;
@@ -79,7 +81,8 @@ contract Treasury is Test {
 
         gov = _gov;
         Split govSplit = _factory.splits(IERC20(address(_gov)));
-        (gov0, gov1) = govSplit.futures();
+        _futures = govSplit.futures();
+        (gov0, gov1) = (_futures.PoS, _futures.PoW);
 
         // requires gov pool to exist
         govPool = IUniswapV2Pair(UniswapV2Utils.pairFor(address(_uniswapFactory), address(gov0), address(gov1)));
@@ -97,7 +100,7 @@ contract Treasury is Test {
         // => need to redeem all assets, as anything accrued right before merge would be stuck otherwise
 
         require(oracle.isExpired());
-        bool redeemOn0 = oracle.isRedeemable(true);
+        bool redeemOn0 = oracle.isPoS();
 
         if (!firstRedeem) {
             firstRedeem = true;

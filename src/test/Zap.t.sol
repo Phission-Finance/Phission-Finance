@@ -31,7 +31,8 @@ contract ZapTest_fork is Test {
         o = IOracle(address(new MockOracle(false, true, false)));
         SplitFactory sf = new SplitFactory(o);
         s = sf.create(weth);
-        (f0, f1) = s.futures();
+        Futures memory _futures = s.futures();
+        (f0, f1) = (_futures.PoS, _futures.PoW);
 
         lp = new WethLp{value : 40 ether}(sf);
 

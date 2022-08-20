@@ -24,10 +24,10 @@ contract ForkOracleTest is Test {
     }
 
     function test_pos_redeemable() public {
-        require(oracle.isRedeemable(true));
+        require(oracle.isPoS() && oracle.isExpired());
     }
 
     function test_pow_redeemable() public {
-        require(oracle.isRedeemable(false));
+        require(oracle.isPoWFork() && oracle.isExpired());
     }
 }

@@ -26,7 +26,8 @@ contract WethLp is Test {
         weth.deposit{value: amt}();
 
         Split s = sf.splits(weth);
-        (t0, t1) = s.futures();
+        Futures memory _futures = s.futures();
+        (t0, t1) = (_futures.PoS, _futures.PoW);
 
         weth.approve(address(s), type(uint256).max);
         s.mint(amt);
@@ -77,7 +78,8 @@ contract SplitLp is Test {
 
     constructor(SplitFactory sf, IERC20 _token) {
         s = sf.get(_token);
-        (t0, t1) = s.futures();
+        Futures memory _futures = s.futures();
+        (t0, t1) = (_futures.PoS, _futures.PoW);
         token = _token;
     }
 

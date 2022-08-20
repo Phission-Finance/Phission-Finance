@@ -40,7 +40,9 @@ contract TreasuryTest_fork is Test {
         o = IOracle(address(new MockOracle(false, true, false)));
         sf = new SplitFactory(o);
         s = sf.create(weth);
-        (f0, f1) = s.futures();
+
+        Futures memory _futures = s.futures();
+        (f0, f1) = (_futures.PoS, _futures.PoW);
 
         emit log_named_uint("ssss2", address(this).balance);
 
@@ -61,7 +63,8 @@ contract TreasuryTest_fork is Test {
 
         lpSplit = sf.create(IERC20(address(pool)));
         lpLp = new SplitLp(sf, IERC20(address(pool)));
-        (lp0, lp1) = lpSplit.futures();
+        _futures = s.futures();
+        (lp0, lp1) = (_futures.PoS, _futures.PoW);
 
         lp.sendTo(address(lpLp), 1 ether);
         lpLp.add(1 ether);

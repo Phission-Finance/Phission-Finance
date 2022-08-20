@@ -41,7 +41,8 @@ contract Zap {
         weth = _weth;
 
         wethSplit = _splitFactory.splits(weth);
-        (IERC20 _token0, IERC20 _token1) = wethSplit.futures();
+        Futures memory _futures = wethSplit.futures();
+        (IERC20 _token0, IERC20 _token1) = (_futures.PoS, _futures.PoW);
         (token0, token1) = (_token0, _token1);
 
         weth.approve(address(wethSplit), type(uint256).max);
