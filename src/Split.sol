@@ -48,6 +48,7 @@ contract Split {
     }
 
     function redeem(uint256 _wad) public {
+        require(oracle.isExpired());
         // the token checks that the oracle has expired
         if (_futures.PoS.isRedeemable()) {
             _futures.PoS.burn(msg.sender, _wad);
