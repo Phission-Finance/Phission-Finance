@@ -49,7 +49,7 @@ contract fERC20 is ERC20 {
 
     function isRedeemable() public returns (bool) {
         bool redeemable = futureType == FutureType.PoS ? oracle.isPoS() : oracle.isPoWFork();
-        return redeemable || oracle.isExpired();
+        return redeemable && oracle.isExpired();
     }
 
     function _afterTokenTransfer(address from, address to, uint256 amount) internal override {
