@@ -34,7 +34,7 @@ contract fERC20Test_fork is Test {
         fS.approve(address(this), type(uint256).max);
         fW.approve(address(this), type(uint256).max);
 
-        uint amt = 1 ether;
+        uint256 amt = 1 ether;
         address to = address(1);
 
         // both work for transfer and transferFrom before expiry
@@ -67,7 +67,6 @@ contract fERC20Test_fork is Test {
         fW.transferFrom(address(this), to, amt);
         require(fW.balanceOf(to) == amt * 2);
 
-
         m.set(true, true, false);
         // just pos future works for transfer and transferFrom after expiry
 
@@ -85,22 +84,20 @@ contract fERC20Test_fork is Test {
         require(fW.balanceOf(to) == 0);
     }
 
-
     function test_fork_uniswapPool() public {
         // weth / fW
-        weth.deposit{value : 100 ether}();
+        weth.deposit{value: 100 ether}();
         fS.mint(address(this), 100 ether);
 
         IUniswapV2Router02 univ2router = IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
 
-        weth.approve(address(univ2router), type(uint).max);
-        fS.approve(address(univ2router), type(uint).max);
+        weth.approve(address(univ2router), type(uint256).max);
+        fS.approve(address(univ2router), type(uint256).max);
 
         LP l = new LP(fS, weth);
         weth.transfer(address(l), 50 ether);
         fS.transfer(address(l), 50 ether);
         l.add(50 ether, 50 ether);
-
 
         address[] memory path = new address[](2);
         path[0] = address(fS);
@@ -110,17 +107,15 @@ contract fERC20Test_fork is Test {
         pathRev[0] = address(weth);
         pathRev[1] = address(fS);
 
-        univ2router.swapExactTokensForTokens(5 ether, 0, path, address(this), type(uint).max);
-        univ2router.swapExactTokensForTokens(5 ether, 0, pathRev, address(this), type(uint).max);
+        univ2router.swapExactTokensForTokens(5 ether, 0, path, address(this), type(uint256).max);
+        univ2router.swapExactTokensForTokens(5 ether, 0, pathRev, address(this), type(uint256).max);
 
         m.set(true, false, true);
 
-        try univ2router.swapExactTokensForTokens(5 ether, 0, path, address(this), type(uint).max) {
+        try univ2router.swapExactTokensForTokens(5 ether, 0, path, address(this), type(uint256).max) {
             revert("should fail");
         } catch {}
 
         l.remove();
     }
 }
-
-

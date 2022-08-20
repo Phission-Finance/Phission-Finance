@@ -1,24 +1,24 @@
 pragma solidity =0.6.6;
 
-import '../lib/v2-core/contracts/interfaces/IUniswapV2Factory.sol';
-import '../lib/v2-core/contracts/interfaces/IUniswapV2Pair.sol';
-import '../lib/solidity-lib/contracts/libraries/FixedPoint.sol';
+import "../lib/v2-core/contracts/interfaces/IUniswapV2Factory.sol";
+import "../lib/v2-core/contracts/interfaces/IUniswapV2Pair.sol";
+import "../lib/solidity-lib/contracts/libraries/FixedPoint.sol";
 
-import '../lib/v2-periphery/contracts/libraries/UniswapV2OracleLibrary.sol';
-import '../lib/v2-periphery/contracts/libraries/UniswapV2Library.sol';
+import "../lib/v2-periphery/contracts/libraries/UniswapV2OracleLibrary.sol";
+import "../lib/v2-periphery/contracts/libraries/UniswapV2Library.sol";
 
 contract UniswapV2Oracle {
     using FixedPoint for *;
 
-    uint public constant PERIOD = 6 hours;
+    uint256 public constant PERIOD = 6 hours;
 
     IUniswapV2Pair immutable pair;
     address public immutable token0;
     address public immutable token1;
 
-    uint    public price0CumulativeLast;
-    uint    public price1CumulativeLast;
-    uint32  public blockTimestampLast;
+    uint256 public price0CumulativeLast;
+    uint256 public price1CumulativeLast;
+    uint32 public blockTimestampLast;
     FixedPoint.uq112x112 public price0Average;
     FixedPoint.uq112x112 public price1Average;
 
@@ -34,18 +34,18 @@ contract UniswapV2Oracle {
         uint112 reserve0;
         uint112 reserve1;
         (reserve0, reserve1, blockTimestampLast) = _pair.getReserves();
-        require(reserve0 != 0 && reserve1 != 0, 'ExampleOracleSimple: NO_RESERVES');
+        require(reserve0 != 0 && reserve1 != 0, "ExampleOracleSimple: NO_RESERVES");
         // ensure that there's liquidity in the pair
     }
 
     function update() external {
-        (uint price0Cumulative, uint price1Cumulative, uint32 blockTimestamp) =
-        UniswapV2OracleLibrary.currentCumulativePrices(address(pair));
+        (uint256 price0Cumulative, uint256 price1Cumulative, uint32 blockTimestamp) =
+            UniswapV2OracleLibrary.currentCumulativePrices(address(pair));
         uint32 timeElapsed = blockTimestamp - blockTimestampLast;
         // overflow is desired
 
         // ensure that at least one full period has passed since the last update
-        require(timeElapsed >= PERIOD, 'ExampleOracleSimple: PERIOD_NOT_ELAPSED');
+        require(timeElapsed >= PERIOD, "ExampleOracleSimple: PERIOD_NOT_ELAPSED");
 
         // overflow is desired, casting never truncates
         // cumulative price is in (uq112x112 price * seconds) units so we simply wrap it after division by time elapsed
@@ -58,11 +58,11 @@ contract UniswapV2Oracle {
     }
 
     // note this will always return 0 before update has been called successfully for the first time.
-    function consult(address token, uint amountIn) external view returns (uint amountOut) {
+    function consult(address token, uint256 amountIn) external view returns (uint256 amountOut) {
         if (token == token0) {
             amountOut = price0Average.mul(amountIn).decode144();
         } else {
-            require(token == token1, 'ExampleOracleSimple: INVALID_TOKEN');
+            require(token == token1, "ExampleOracleSimple: INVALID_TOKEN");
             amountOut = price1Average.mul(amountIn).decode144();
         }
     }

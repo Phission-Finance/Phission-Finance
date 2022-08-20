@@ -21,11 +21,11 @@ contract MockOracle is IOracle {
         require(owner == msg.sender);
     }
 
-    function isExpired() public view returns (bool){
+    function isExpired() public view returns (bool) {
         return ret0;
     }
 
-    function isRedeemable(bool future0) public view returns (bool){
+    function isRedeemable(bool future0) public view returns (bool) {
         return future0 ? ret1 : ret2;
     }
 }
