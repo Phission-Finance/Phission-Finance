@@ -1,4 +1,4 @@
-#! /bin/sh
+#! /bin/bash
 
 RPC_URL=""
 ETHERSCAN_KEY=""

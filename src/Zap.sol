@@ -17,9 +17,12 @@ contract Zap {
     IUniswapV2Router02 router;
 
     Split wethSplit;
+    Split lpSplit;
 
     IERC20 token0;
     IERC20 token1;
+    IERC20 lpToken0;
+    IERC20 lpToken1;
     Treasury treasury;
 
     IERC20 gov;
@@ -27,7 +30,9 @@ contract Zap {
     IWETH weth;
 
     bool token0First;
+    bool lpToken0First;
     IUniswapV2Pair pool;
+    IUniswapV2Pair lpPool;
 
     constructor(
         IUniswapV2Factory _uniswapFactory,
@@ -53,6 +58,23 @@ contract Zap {
 
         pool = IUniswapV2Pair(_uniswapFactory.getPair(address(token0), address(token1)));
         token0First = (address(token0) == pool.token0());
+
+        lpSplit = _splitFactory.splits(IERC20(address(pool)));
+        (IERC20 _lpToken0, IERC20 _lpToken1) = lpSplit.futures();
+        (lpToken0, lpToken1) = (_lpToken0, _lpToken1);
+
+        lpPool = IUniswapV2Pair(_uniswapFactory.getPair(address(lpToken0), address(lpToken1)));
+        lpToken0First = (address(lpToken0) == lpPool.token0());
+
+        pool.approve(address(lpSplit), type(uint256).max);
+        lpPool.approve(address(router), type(uint256).max);
+        lpToken0.approve(address(router), type(uint256).max);
+        lpToken1.approve(address(router), type(uint256).max);
+
+        lpToken0.approve(address(lpPool), type(uint256).max);
+        lpToken1.approve(address(lpPool), type(uint256).max);
+        lpToken0.approve(address(lpSplit), type(uint256).max);
+        lpToken1.approve(address(lpSplit), type(uint256).max);
 
         pool.approve(address(router), type(uint256).max);
         token0.approve(address(router), type(uint256).max);
@@ -308,7 +330,43 @@ contract Zap {
         return res;
     }
 
-    //  function stakeLP()    LP -> staked LP{s,w}
+    function stakeLP(uint256 _amt, uint256 _minAmtOut, bool _future0) public payable returns (uint256) {
+        // transfer the lp tokens in
+        pool.transferFrom(msg.sender, address(this), _amt);
+
+        // transfer the fees out to the treasury
+        uint256 feeAmt = _amt * feeBps / 1e4;
+        pool.transfer(address(treasury), feeAmt);
+
+        // split the LP token into LPw and LPs
+        uint256 inAmt = _amt - feeAmt;
+        lpSplit.mint(inAmt);
+
+        (uint112 res0, uint112 res1,) = lpPool.getReserves();
+        uint256 out;
+        if (_future0) {
+            // swap the unwanted LPs/LPw for LPw/LPs and transfer to sender
+            lpToken1.transfer(address(lpPool), inAmt);
+            out = UniswapV2Utils.getAmountOut(inAmt, lpToken0First ? res1 : res0, lpToken0First ? res0 : res1);
+            lpPool.swap(lpToken0First ? out : 0, lpToken0First ? 0 : out, address(msg.sender), "");
+
+            // send the already minted, wanted LPs/LPw to sender
+            lpToken0.transfer(address(msg.sender), inAmt);
+        } else {
+            // swap the unwanted LPs/LPw for LPw/LPs and transfer to sender
+            lpToken0.transfer(address(lpPool), inAmt);
+            out = UniswapV2Utils.getAmountOut(inAmt, lpToken0First ? res0 : res1, lpToken0First ? res1 : res0);
+            lpPool.swap(lpToken0First ? 0 : out, lpToken0First ? out : 0, address(msg.sender), "");
+
+            // send the already minted, wanted LPs/LPw to sender
+            lpToken1.transfer(address(msg.sender), inAmt);
+        }
+
+        uint256 returned = inAmt + out;
+        require(returned >= _minAmtOut, "too little received");
+        return returned;
+    }
+
     //  function unstakeLP()  staked LP{s,w} -> LP
 
     //  function stakeLP2()   LP -> staked LP2
