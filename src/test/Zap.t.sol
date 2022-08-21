@@ -44,8 +44,8 @@ contract ZapTest_fork is Test {
 
         lp.pool().approve(address(lpLp), type(uint256).max);
 
-        lp.sendTo(address(lpLp), 1 ether);
-        lpLp.add(1 ether);
+        deal(address(lp.pool()), address(lpLp), 50 ether, true);
+        lpLp.add(10 ether);
         deal(address(lpF0), address(this), 50 ether, true);
         deal(address(lpF1), address(this), 50 ether, true);
         lpF0.transfer(address(lpLp.lp()), 40 ether);
@@ -174,16 +174,22 @@ contract ZapTest_fork is Test {
         uint256 balF0 = f0.balanceOf(address(z));
         uint256 balF1 = f1.balanceOf(address(z));
         uint256 balLp = lp.pool().balanceOf(address(z));
+        uint256 balLp0 = lpF0.balanceOf(address(z));
+        uint256 balLp1 = lpF1.balanceOf(address(z));
 
         emit log_named_uint("residual balE", balE);
         emit log_named_uint("residual balF0", balF0);
         emit log_named_uint("residual balF1", balF1);
         emit log_named_uint("residual balLp", balLp);
+        emit log_named_uint("residual balLp0", balLp0);
+        emit log_named_uint("residual balLp1", balLp1);
 
         require(balE <= 1, "residual balE");
         require(balF0 <= 1, "residual balF0");
         require(balF1 <= 1, "residual balF1");
         require(balLp <= 1, "residual balLp");
+        require(balLp0 <= 1, "residual balLp0");
+        require(balLp1 <= 1, "residual balLp1");
     }
 
     function test_fork_buy(bool token0, bool isImbalanced, bool imbalanceDirection) public {
@@ -408,13 +414,11 @@ contract ZapTest_fork is Test {
         deal(address(lp.pool()), address(this), 40 ether, true);
         lp.pool().approve(address(z), type(uint256).max);
 
-        emit log_string("=== === BUY");
+        emit log_string("=== === STAKELP");
 
         if (isImbalanced) {
             lpLp.trade(10 ether, imbalanceDirection);
         }
-
-        lpF0.transfer(address(treasury), 1 ether);
 
         uint256 balanceBefore = lp.pool().balanceOf(address(this));
         uint256 lpF0thisBefore = lpF0.balanceOf(address(this));
@@ -459,13 +463,12 @@ contract ZapTest_fork is Test {
         deal(address(lp.pool()), address(this), 40 ether, true);
         lp.pool().approve(address(z), type(uint256).max);
 
-        emit log_string("=== === SELL");
+        emit log_string("=== === UNSTAKELP");
 
         if (isImbalanced) {
             lpLp.trade(10 ether, imbalanceDirection);
         }
 
-        (token0 ? lpF0 : lpF1).transfer(address(treasury), 1 ether);
         uint256 tokenBought = (token0 ? lpF0 : lpF1).balanceOf(address(this));
 
         z.stakeLP(1 ether, 0, token0);
@@ -515,6 +518,58 @@ contract ZapTest_fork is Test {
 
         require(returnedValue == balanceAfter - balanceBefore, "sell return value incorrect");
 
+        checkZapBalances();
+    }
+
+    function test_fork_stakeLP2(bool token0, bool isImbalanced, bool imbalanceDirection) public {
+        deal(address(lp.pool()), address(this), 40 ether, true);
+        lp.pool().approve(address(z), type(uint256).max);
+
+        emit log_string("=== === STAKE LP^2");
+
+        if (isImbalanced) {
+            lp.trade(10 ether, imbalanceDirection);
+        }
+
+        uint256 balanceBefore = lp.pool().balanceOf(address(this));
+        uint256 lpF0thisBefore = lpF0.balanceOf(address(this));
+        uint256 lpF1thisBefore = lpF1.balanceOf(address(this));
+        uint256 lpthisBefore = lpLp.pool().balanceOf(address(this));
+
+        uint256 lpF0treasuryBefore = lpF0.balanceOf(address(treasury));
+        uint256 lpF1treasuryBefore = lpF1.balanceOf(address(treasury));
+
+        emit log_named_uint("balance", balanceBefore);
+        emit log_named_uint("lpF0this", lpF0thisBefore);
+        emit log_named_uint("lpF1this", lpF1thisBefore);
+        emit log_named_uint("lpthisBefore", lpthisBefore);
+        emit log_named_uint("lpF0treasury", lpF0treasuryBefore);
+        emit log_named_uint("lpF1treasury", lpF1treasuryBefore);
+
+        uint256 gas = gasleft();
+        uint256 returnedValue = z.stakeLP2(1 ether, 0);
+        emit log_named_uint("ZAP::STAKELP2() gas usage", gas - gasleft());
+
+        uint256 balanceAfter = lp.pool().balanceOf(address(this));
+        uint256 lpF0thisAfter = lpF0.balanceOf(address(this));
+        uint256 lpF1thisAfter = lpF1.balanceOf(address(this));
+        uint256 lpthisAfter = lpLp.pool().balanceOf(address(this));
+
+        uint256 lpF0treasuryAfter = lpF0.balanceOf(address(treasury));
+        uint256 lpF1treasuryAfter = lpF1.balanceOf(address(treasury));
+
+        emit log_named_uint("balance", balanceAfter);
+        emit log_named_uint("lpF0this", lpF0thisAfter);
+        emit log_named_uint("lpF1this", lpF1thisAfter);
+        emit log_named_uint("lpthisAfter", lpthisAfter);
+        emit log_named_uint("lpF0treasury", lpF0treasuryAfter);
+        emit log_named_uint("lpF1treasury", lpF1treasuryAfter);
+
+        require(lpthisAfter > lpthisBefore, "error 1");
+        require(lpF0thisAfter == lpF0thisBefore && lpF1thisAfter == lpF1thisBefore, "error 2");
+        require(balanceBefore - balanceAfter == 1 ether, "error 3");
+
+        require(returnedValue == lpthisAfter - lpthisBefore, "buy LP return value incorrect");
         checkZapBalances();
     }
 }

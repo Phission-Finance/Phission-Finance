@@ -12,7 +12,7 @@ import "./Treasury.sol";
 
 // TODO: use PRB muldiv to reduce rounding errors
 
-contract Zap {
+contract Zap is Test {
     SplitFactory splitFactory;
     IUniswapV2Router02 router;
 
@@ -398,7 +398,87 @@ contract Zap {
         return out;
     }
 
-    //  function stakeLP2()   LP -> staked LP2
+    // LP -> LP^2
+    function stakeLP2(uint256 _amt, uint256 _minAmount) public payable returns (uint256) {
+        // transfer lp tokens in
+        pool.transferFrom(msg.sender, address(this), _amt);
+
+        // take the fee
+        uint256 feeAmt = (_amt * feeBps) / 1e4;
+        pool.transfer(address(treasury), feeAmt);
+
+        // split the LP tokens into LPs/LPw
+        uint256 inAmt = _amt - feeAmt;
+        lpSplit.mint(inAmt);
+
+        (uint256 res0, uint256 res1,) = lpPool.getReserves();
+        if (!token0First) {
+            (res0, res1) = (res1, res0);
+        }
+
+        // check whether we need to buy LPs or LPw
+        bool excessIn0 = res1 >= res0;
+        if (!excessIn0) {
+            (res0, res1) = (res1, res0);
+        }
+
+        // if LPs and LPw are equal price then just LP normally
+        if (res0 == res1) {
+            (,, uint256 returned) = router.addLiquidity(
+                address(lpToken0), address(lpToken1), inAmt, inAmt, 0, 0, address(msg.sender), type(uint256).max
+            );
+            return returned;
+        }
+
+        // calculate how much LPs/LPw needs to be bought to be able to add liquidity
+        uint256 amtIn = (
+            Math.sqrt(
+                (
+                    res0
+                        * (
+                            (4 * inAmt * res1 * 1000) / 997 + (res0 * inAmt * (1000 - 997) ** 2) / 997 ** 2
+                                + (res0 * res1 * (1000 + 997) ** 2) / 997 ** 2
+                        )
+                ) / (res1 + inAmt)
+            ) - (res0 * (1000 + 997)) / 997
+        ) / 2;
+        uint256 amtOut = UniswapV2Utils.getAmountOut(amtIn, res0, res1);
+
+        uint256 returned;
+        if (excessIn0) {
+            lpToken0.transfer(address(lpPool), amtIn);
+            pool.swap(lpToken0First ? 0 : amtOut, lpToken0First ? amtOut : 0, address(this), "");
+
+            (,, returned) = router.addLiquidity(
+                address(lpToken0),
+                address(lpToken1),
+                inAmt - amtIn,
+                inAmt + amtOut,
+                0,
+                0,
+                address(msg.sender),
+                type(uint256).max
+            );
+        } else {
+            lpToken1.transfer(address(pool), amtIn);
+            pool.swap(lpToken0First ? amtOut : 0, lpToken0First ? 0 : amtOut, address(this), "");
+
+            (,, returned) = router.addLiquidity(
+                address(lpToken0),
+                address(lpToken1),
+                inAmt + amtOut,
+                inAmt - amtIn,
+                0,
+                0,
+                address(msg.sender),
+                type(uint256).max
+            );
+        }
+
+        require(returned > _minAmount, "too little received");
+        return returned;
+    }
+
     //  function unstakeLP2() staked LP2 -> LP
 
     //  redeemPHI()  after expiry redeems PHI{s,w}   => add redeemTo function in treasury

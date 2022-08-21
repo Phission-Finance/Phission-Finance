@@ -11,32 +11,32 @@ SENDER="0x$(openssl rand -hex 20)"
 
 echo "SENDER $SENDER"
 
-TEST="(without rpc) before merge"
+# TEST="(without rpc) before merge"
 
-echo "testing: $TEST" && forge test --chain-id 1 --block-difficulty 1 --no-match-test "_pos|_pow" --no-match-contract "_fork" --sender $SENDER -vvv \
-    || { echo "failed: $TEST" ; exit 1; }
+# echo "testing: $TEST" && forge test --chain-id 1 --block-difficulty 1 --no-match-test "_pos|_pow" --no-match-contract "_fork" --sender $SENDER -vvv \
+#     || { echo "failed: $TEST" ; exit 1; }
 
-TEST="(without rpc) after merge on pos"
+# TEST="(without rpc) after merge on pos"
 
-echo "testing: $TEST" && forge test --chain-id 1 --block-difficulty 18446744073709551615  --match-test "_pos" --no-match-contract "_fork" --sender $SENDER -vvv \
-    || { echo "failed: $TEST" ; exit 1; }
+# echo "testing: $TEST" && forge test --chain-id 1 --block-difficulty 18446744073709551615  --match-test "_pos" --no-match-contract "_fork" --sender $SENDER -vvv \
+#     || { echo "failed: $TEST" ; exit 1; }
 
-TEST="(without rpc) after merge on pow"
+# TEST="(without rpc) after merge on pow"
 
-echo "testing: $TEST" && forge test --chain-id 1337 --block-difficulty 1  --match-test "_pow" --no-match-contract "_fork" --sender $SENDER -vvv \
-    || { echo "failed: $TEST" ; exit 1; }
+# echo "testing: $TEST" && forge test --chain-id 1337 --block-difficulty 1  --match-test "_pow" --no-match-contract "_fork" --sender $SENDER -vvv \
+#     || { echo "failed: $TEST" ; exit 1; }
 
-TEST="before merge"
+# TEST="before merge"
 
-echo "testing: $TEST" && forge test --fork-url $RPC_URL  --etherscan-api-key $ETHERSCAN_KEY --chain-id 1 --no-match-test "_pos|_pow" --match-contract "_fork" --sender $SENDER -vvvvvv \
-    || { echo "failed: $TEST" ; exit 1; }
+# echo "testing: $TEST" && forge test --fork-url $RPC_URL  --etherscan-api-key $ETHERSCAN_KEY --chain-id 1 --no-match-test "_pos|_pow" --match-contract "_fork" --sender $SENDER -vvvvvv \
+#     || { echo "failed: $TEST" ; exit 1; }
 
 TEST="after merge on pos"
 
-echo "testing: $TEST" && forge test --fork-url $RPC_URL  --etherscan-api-key $ETHERSCAN_KEY --chain-id 1 --block-difficulty 18446744073709551615  --match-test "_pos" --match-contract "_fork" --sender $SENDER -vvvvvv \
+echo "testing: $TEST" && forge test --fork-url $RPC_URL  --etherscan-api-key $ETHERSCAN_KEY --chain-id 1 --block-difficulty 18446744073709551615  --match-contract "_fork" --match-test test_fork_stakeLP2 --sender $SENDER -vvvvvv \
     || { echo "failed: $TEST" ; exit 1; }
 
-TEST="after merge on pow"
+# TEST="after merge on pow"
 
-echo "testing: $TEST" && forge test --fork-url $RPC_URL  --etherscan-api-key $ETHERSCAN_KEY --chain-id 1337  --match-test "_pow" --match-contract "_fork" --sender $SENDER -vvvvvv \
-    || { echo "failed: $TEST" ; exit 1; }
+# echo "testing: $TEST" && forge test --fork-url $RPC_URL  --etherscan-api-key $ETHERSCAN_KEY --chain-id 1337  --match-test "_pow" --match-contract "_fork" --sender $SENDER -vvvvvv \
+#     || { echo "failed: $TEST" ; exit 1; }
