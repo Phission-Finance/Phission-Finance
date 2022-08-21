@@ -99,6 +99,7 @@ contract StakingTest_fork is Test {
             "rewards after claiming rewards after 5 days",
             gov.balanceOf(address(staking))
         );
+        assertTrue(gov.balanceOf(address(staking)) == 0, "dust remaining!");
     }
 
     receive() external payable {}
