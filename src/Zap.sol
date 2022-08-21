@@ -12,7 +12,7 @@ import "./Treasury.sol";
 
 // TODO: use PRB muldiv to reduce rounding errors
 
-contract Zap is Test {
+contract Zap {
     SplitFactory splitFactory;
     IUniswapV2Router02 router;
 
@@ -412,7 +412,7 @@ contract Zap is Test {
         lpSplit.mint(inAmt);
 
         (uint256 res0, uint256 res1,) = lpPool.getReserves();
-        if (!token0First) {
+        if (!lpToken0First) {
             (res0, res1) = (res1, res0);
         }
 
@@ -447,7 +447,7 @@ contract Zap is Test {
         uint256 returned;
         if (excessIn0) {
             lpToken0.transfer(address(lpPool), amtIn);
-            pool.swap(lpToken0First ? 0 : amtOut, lpToken0First ? amtOut : 0, address(this), "");
+            lpPool.swap(lpToken0First ? 0 : amtOut, lpToken0First ? amtOut : 0, address(this), "");
 
             (,, returned) = router.addLiquidity(
                 address(lpToken0),
@@ -460,8 +460,8 @@ contract Zap is Test {
                 type(uint256).max
             );
         } else {
-            lpToken1.transfer(address(pool), amtIn);
-            pool.swap(lpToken0First ? amtOut : 0, lpToken0First ? 0 : amtOut, address(this), "");
+            lpToken1.transfer(address(lpPool), amtIn);
+            lpPool.swap(lpToken0First ? amtOut : 0, lpToken0First ? 0 : amtOut, address(this), "");
 
             (,, returned) = router.addLiquidity(
                 address(lpToken0),
@@ -480,6 +480,66 @@ contract Zap is Test {
     }
 
     //  function unstakeLP2() staked LP2 -> LP
+    function unstakeLP2(uint256 _amt, uint256 _minAmount) public returns (uint256) {
+        // transfer LP2 tokens in
+        lpPool.transferFrom(address(msg.sender), address(this), _amt);
+
+        // transfer fee to treasury
+        uint256 feeAmt = (_amt * feeBps) / 1e4;
+        lpPool.transfer(address(treasury), feeAmt);
+
+        // remove liquidity and get LPs/LPw tokens
+        uint256 inAmt = _amt - feeAmt;
+        (uint256 a0, uint256 a1) = router.removeLiquidity(
+            address(lpToken0),
+            address(lpToken1),
+            inAmt, // a0, a1 are ordered token0(here) token1(here)
+            0,
+            0,
+            address(this),
+            type(uint256).max
+        );
+
+        (uint256 r0, uint256 r1,) = lpPool.getReserves();
+        if (!lpToken0First) {
+            (r0, r1) = (r1, r0);
+        }
+        if (a0 == a1) {
+            // convert LPs+LPw tokens to LP tokens and transfer to sender
+            lpSplit.burn(a0);
+            pool.transfer(msg.sender, a0);
+            return a0;
+        }
+
+        bool excessIn0 = a0 > a1;
+        if (excessIn0) {
+            (a0, a1, r0, r1) = (a1, a0, r1, r0);
+        }
+
+        uint256 a_ = a1 ** 2;
+        uint256 b_ = a1 * r0 + (1000 * a1 * r1) / 997 + a0 * a1 - a1 ** 2;
+        uint256 c2_ = (1000 * a1 * r1) / 997 - (a0 * 1000 * r1) / 997;
+        uint256 x = (a1 * (Math.sqrt(b_ ** 2 + 4 * a_ * c2_) - b_)) / (2 * a_);
+
+        // swap the excess LPw/LPs tokens so that they are evenly split
+        (excessIn0 ? lpToken0 : lpToken1).transfer(address(lpPool), x);
+        uint256 out = UniswapV2Utils.getAmountOut(x, r1, r0);
+
+        if (lpToken0First) {
+            lpPool.swap(excessIn0 ? 0 : out, excessIn0 ? out : 0, address(this), "");
+        } else {
+            lpPool.swap(excessIn0 ? out : 0, excessIn0 ? 0 : out, address(this), "");
+        }
+
+        uint256 res = a0 + out;
+        require(res > _minAmount, "too little received");
+
+        // convert LPs+LPw tokens to LP tokens and transfer to sender
+        lpSplit.burn(res);
+        pool.transfer(msg.sender, res);
+
+        return res;
+    }
 
     //  redeemPHI()  after expiry redeems PHI{s,w}   => add redeemTo function in treasury
 }
