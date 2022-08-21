@@ -430,7 +430,7 @@ contract ZapTest_fork is Test {
 
         uint256 gas = gasleft();
         uint256 returnedValue = z.stakeLP(0.01 ether, 0, token0);
-        emit log_named_uint("ZAP::BUY(fee before) gas usage", gas - gasleft());
+        emit log_named_uint("ZAP::STAKELP(fee before) gas usage", gas - gasleft());
 
         uint256 balanceAfter = lp.pool().balanceOf(address(this));
         uint256 lpF0thisAfter = lpF0.balanceOf(address(this));
@@ -487,7 +487,7 @@ contract ZapTest_fork is Test {
         (token0 ? lpF0 : lpF1).approve(address(z), type(uint256).max);
         uint256 gas = gasleft();
         uint256 returnedValue = z.unstakeLP(tokenBought, 0, token0);
-        emit log_named_uint("ZAP::SELL() gas usage", gas - gasleft());
+        emit log_named_uint("ZAP::UNSTAKELP() gas usage", gas - gasleft());
 
         uint256 balanceAfter = lp.pool().balanceOf(address(this));
         uint256 lpF0thisAfter = lpF0.balanceOf(address(this));
