@@ -63,10 +63,10 @@ contract ZapTest_fork is Test {
 
     function test_fork_mint(uint256 amt) public {
         uint256 balEthBefore = address(this).balance;
+        amt = amt % balEthBefore;
         if (amt == 0) {
             return;
         }
-        amt = amt % balEthBefore;
 
         uint256 bal0Before = f0.balanceOf(address(this));
         uint256 bal1Before = f1.balanceOf(address(this));
@@ -93,10 +93,10 @@ contract ZapTest_fork is Test {
 
     function test_fork_burn(uint256 amt) public {
         uint256 balEthBefore = address(this).balance;
+        amt = amt % balEthBefore;
         if (amt == 0) {
             return;
         }
-        amt = amt % balEthBefore;
 
         z.mint{value: amt}();
 
@@ -129,10 +129,10 @@ contract ZapTest_fork is Test {
 
     function test_fork_redeem(bool tok0, uint256 amt) public {
         uint256 balEthBefore = address(this).balance;
+        amt = amt % balEthBefore;
         if (amt == 0) {
             return;
         }
-        amt = amt % balEthBefore;
 
         z.mint{value: amt}();
 
