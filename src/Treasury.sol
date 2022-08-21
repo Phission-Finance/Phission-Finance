@@ -77,7 +77,11 @@ contract Treasury is Test {
         lpPool = IUniswapV2Pair(_uniswapFactory.getPair(address(lp0), address(lp1)));
         lp0.approve(address(_uniswapRouter), type(uint256).max);
         lp1.approve(address(_uniswapRouter), type(uint256).max);
-        lp0First = address(lp0) == pool.token0();
+        lp0.approve(address(lpSplit), type(uint256).max);
+        lp1.approve(address(lpSplit), type(uint256).max);
+        lp0First = address(lp0) == lpPool.token0();
+
+        lpPool.approve(address(uniswapRouter), type(uint256).max);
 
         gov = _gov;
         Split govSplit = _factory.splits(IERC20(address(_gov)));
@@ -124,17 +128,15 @@ contract Treasury is Test {
         // need a function to calculate underlyings
         // burnt from each side because of gov-eth lp and govw/s lp
 
-        total -=
-            (redeemOn0 ? (gov0.balanceOf(address(this)) + burntLPGov0) : (gov1.balanceOf(address(this)) + burntLPGov1));
-
-        // 3100
+        if (redeemOn0) {
+            total -= (gov0.balanceOf(address(this)) + burntLPGov0);
+        } else {
+            total -= (gov1.balanceOf(address(this)) + burntLPGov1);
+        }
 
         emit log_named_uint("total", total);
 
         gov.transferFrom(msg.sender, address(this), _amt);
-
-        // token0.transfer(msg.sender, (_amt * token0.balanceOf(address(this))) / total0);
-        // token1.transfer(msg.sender, (_amt * token1.balanceOf(address(this))) / total1);
 
         emit log_named_uint("address(this).balance", address(this).balance);
         emit log_named_uint("total", total);
@@ -150,12 +152,6 @@ contract Treasury is Test {
 
     uint256 burntLPGov0;
     uint256 burntLPGov1;
-
-    // call to create LP tokens from contents, and the excess goes to the caller of the contract
-    // fill with the token it's lacking from the ratio
-    // flash loan,
-
-    // => LP   caller gets a cut of LP amt outputted, fees accrue in the token missing
 
     function unwind(bool redeemOn0) internal {
         // PHI-WETH  ->   PHI & WETH
@@ -240,21 +236,23 @@ contract Treasury is Test {
         }
     }
 
-    uint256 treasuryLPRewardBps = 100; // = 1%
-
+    uint256 constant treasuryLPRewardBps = 100; // = 1%
     uint256 constant maxSlippage = 1000; // = 10%
+    uint256 constant maxSlippageLP = 2000; // = 20%
     uint256 constant auctionDuration = 12 hours;
     uint256 constant warmUp = auctionDuration / 4;
 
-    mapping(address => uint256) convertersLp;
+    mapping(address => uint256) public convertersLp;
 
+    // TODO: sliding window oracle doesnt need try
     function intendConvertToLp() public {
         try wethOracle.update() {} catch {}
         try lpOracle.update() {} catch {}
         convertersLp[msg.sender] = block.timestamp;
     }
 
-    // auction: expects pool to already have liquidity
+    // keepers call to create LP tokens from contents
+    // expects pool to already have liquidity
     // pays 1% of lp tokens it receives to caller
     function convertToLp() public {
         require(!oracle.isExpired());
@@ -282,17 +280,15 @@ contract Treasury is Test {
             (res0, res1, bal0, bal1) = (res1, res0, bal1, bal0);
         }
 
-        uint256 num = (
-            (4 * bal0 * res1 * 1000) / 997 + (res0 * bal1 * (1000 - 997) ** 2) / 997 ** 2
-                + (res0 * res1 * (1000 + 997) ** 2) / 997 ** 2
-        );
-        uint256 amtIn = (Math.sqrt((res0 * num) / (res1 + bal1)) - (res0 * (1000 + 997)) / 997) / 2;
+        uint256 num = ((4 * bal0 * res1 * 1000) / 997 + (res0 * bal1 * 9) / 994009 + (res0 * res1 * 3988009) / 994009);
+
+        uint256 amtIn = (Math.sqrt(PRBMath.mulDiv(res0, num, res1 + bal1)) - (res0 * (1000 + 997)) / 997) / 2;
 
         uint256 oracleAmtOut = wethOracle.consult(address(excessIn0 ? token0 : token1), amtIn);
 
         emit log_named_uint("oracleAmtOut", oracleAmtOut);
 
-        require(oracleAmtOut != 0, "twap price = 0");
+        require(oracleAmtOut != 0, "oracle price = 0");
 
         uint256 minAmtOut = (oracleAmtOut * (10000 - maxSlippage)) / 10000;
         uint256 amtOut = UniswapV2Utils.getAmountOut(amtIn, res0, res1);
@@ -315,6 +311,8 @@ contract Treasury is Test {
         (,, uint256 liquidity) =
             uniswapRouter.addLiquidity(address(token0), address(token1), b00, b11, 0, 0, address(this), type(uint256).max);
 
+        unwindLPs();
+
         uint256 reward = (liquidity * treasuryLPRewardBps) / 10000;
         pool.transfer(msg.sender, reward);
     }
@@ -329,6 +327,82 @@ contract Treasury is Test {
         if (wethBal > 0) {
             wethSplit.mint(wethBal);
         }
+    }
+
+    function unwindLPs() internal {
+        {
+            uint256 bal2 = lpPool.balanceOf(address(this));
+            emit log_named_uint("bal2", bal2);
+            if (bal2 > 0) {
+                uniswapRouter.removeLiquidity(address(lp0), address(lp1), bal2, 0, 0, address(this), type(uint256).max);
+            }
+        }
+
+        (uint256 bal0, uint256 bal1) = (lp0.balanceOf(address(this)), lp1.balanceOf(address(this)));
+
+        emit log_named_uint("bal0", bal0);
+        emit log_named_uint("bal1", bal1);
+
+        if (bal0 == bal1) {
+            if (bal0 != 0) {
+                lpSplit.burn(bal0);
+            }
+            return;
+        }
+
+        bool excessIn0 = bal0 > bal1;
+        (uint256 res0, uint256 res1,) = lpPool.getReserves();
+
+        emit log_named_uint("res0", res0);
+        emit log_named_uint("res1", res1);
+
+        if (!lp0First) {
+            (res0, res1) = (res1, res0);
+        }
+        if (!excessIn0) {
+            (res0, res1, bal0, bal1) = (res1, res0, bal1, bal0);
+        }
+
+        uint256 excess = bal0 - bal1;
+
+        emit log_named_uint("excess", excess);
+        emit log_named_uint("bal0", bal0);
+        emit log_named_uint("bal1", bal1);
+        emit log_named_uint("res0", res0);
+        emit log_named_uint("res1", res1);
+
+        uint256 num0 = (1000 * res0) / 997 + excess + res1;
+        uint256 b = (num0 - Math.sqrt(num0 ** 2 - 4 * excess * res1)) / 2;
+        uint256 out = UniswapV2Utils.getAmountOut(excess - b, res0, res1);
+        emit log_named_uint("out", out);
+
+        uint256 amtIn = excess - b;
+        emit log_named_uint("amtIn", amtIn);
+
+        {
+            uint256 oracleAmtOut = lpOracle.consult(address(excessIn0 ? lp0 : lp1), amtIn);
+            emit log_named_uint("oracleAmtOut", oracleAmtOut);
+            if (oracleAmtOut == 0) {
+                return;
+            }
+
+            uint256 minAmtOut = (oracleAmtOut * (10000 - maxSlippageLP)) / 10000;
+            emit log_named_uint("minAmtOut", minAmtOut);
+            if (out < minAmtOut) {
+                return;
+            }
+            if (out < amtIn / 2) {
+                return;
+            }
+        }
+
+        (excessIn0 ? lp0 : lp1).transfer(address(lpPool), amtIn);
+        lpPool.swap(excessIn0 == lp0First ? 0 : out, excessIn0 == lp0First ? out : 0, address(this), "");
+
+        emit log_named_uint("bal0 - amtIn", bal0 - amtIn);
+        emit log_named_uint("bal1 + out", bal1 + out);
+
+        lpSplit.burn(min(bal1 + out, bal0 - amtIn));
     }
 }
 
@@ -355,4 +429,8 @@ function computeLiquidityValue(
         }
     }
     return ((reservesA * liquidityAmount) / totalSupply, (reservesB * liquidityAmount) / totalSupply);
+}
+
+function min(uint256 a, uint256 b) pure returns (uint256) {
+    return a <= b ? a : b;
 }

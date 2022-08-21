@@ -71,7 +71,7 @@ contract SplitLp is Test {
     IERC20 public t0;
     IERC20 public t1;
 
-    LP lp;
+    LP public lp;
 
     IUniswapV2Pair public pool;
 

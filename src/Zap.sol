@@ -141,35 +141,23 @@ contract Zap {
         (_future0 ? token0 : token1).transfer(address(treasury), feeAmt);
 
         uint256 inAmt = _amt - feeAmt;
-        uint256 b;
-        uint256 out;
         (uint256 res0, uint256 res1,) = pool.getReserves();
-        if (_future0) {
-            (uint256 resIn, uint256 resOut) = token0First ? (res0, res1) : (res1, res0);
+        (uint256 resIn, uint256 resOut) = _future0 == token0First ? (res0, res1) : (res1, res0);
 
-            b = (
-                (1000 * resIn) / 997 + inAmt + resOut
-                    - Math.sqrt(((1000 * resIn) / 997 + inAmt + resOut) ** 2 - 4 * inAmt * resOut)
-            ) / 2;
-            out = UniswapV2Utils.getAmountOut(inAmt - b, resIn, resOut);
+        uint256 num0 = (1000 * resIn) / 997 + inAmt + resOut;
+        uint256 b = (num0 - Math.sqrt(num0 ** 2 - 4 * inAmt * resOut)) / 2;
+        uint256 out = UniswapV2Utils.getAmountOut(inAmt - b, resIn, resOut);
+        require(out >= _minAmtOut, "too little received");
+
+        if (_future0) {
             token0.transfer(address(pool), inAmt - b);
             pool.swap(token0First ? 0 : out, token0First ? out : 0, address(this), "");
         } else {
-            (uint256 resIn, uint256 resOut) = token0First ? (res1, res0) : (res0, res1);
-
-            b = (
-                (1000 * resIn) / 997 + inAmt + resOut
-                    - Math.sqrt(((1000 * resIn) / 997 + inAmt + resOut) ** 2 - 4 * inAmt * resOut)
-            ) / 2;
-            out = UniswapV2Utils.getAmountOut(inAmt - b, resIn, resOut);
             token1.transfer(address(pool), inAmt - b);
             pool.swap(token0First ? out : 0, token0First ? 0 : out, address(this), "");
         }
 
         // b - out = 1 unit of token being sold, not worth the gas to send the token dust
-
-        require(out >= _minAmtOut, "too little received");
-
         wethSplit.burn(out);
         weth.withdraw(out);
 

@@ -242,6 +242,94 @@ contract TreasuryTest_fork is Test {
         require(lbalBefore < lbalAfter, "rev 3");
     }
 
+    // todo: more tests on this
+    function test_convertToLpWithLP2sw(
+        bool token0,
+        bool isImbalanced,
+        bool imbalanceDirection,
+        bool lpTokn0,
+        bool lpImbalance
+    )
+        public
+    {
+        MockOracle(address(o)).set(false, token0, !token0);
+
+        if (isImbalanced) {
+            lp.trade(10 ether, imbalanceDirection);
+        }
+
+        emit log_string("updated prices:");
+        lp.print_price();
+
+        (uint256 trAmt0, uint256 trAmt1) = token0 ? (1e16, 1e15) : (1e15, 1e16);
+
+        f0.transfer(address(treasury), trAmt0);
+        f1.transfer(address(treasury), trAmt1);
+
+        emit log_string(">>");
+
+        lp.sendTo(address(this), 2 ether);
+        emit log_string(">>");
+        pool.approve(address(lpSplit), type(uint256).max);
+        emit log_string(">>");
+        lpSplit.mint(2 ether);
+        emit log_string(">>");
+        (lpTokn0 ? lp0 : lp1).transfer(address(treasury), 0.01 ether);
+        emit log_string(">>");
+
+        lpLp.sendTo(address(treasury), 0.5 ether);
+        emit log_string(">>");
+
+        treasury.intendConvertToLp();
+        vm.warp(block.timestamp + 8 hours);
+
+        emit log_string(">>");
+
+        uint256 tbal0Before = f0.balanceOf(address(treasury));
+        uint256 tbal1Before = f1.balanceOf(address(treasury));
+        uint256 lbalBefore = pool.balanceOf(address(this));
+        uint256 ltbalBefore = pool.balanceOf(address(treasury));
+
+        (uint256 res0, uint256 res1,) = lp.pool().getReserves();
+        wethOracle.set((res1 << 112) / res0, (res0 << 112) / res1);
+
+        (uint256 reslp0, uint256 reslp1,) = lpLp.pool().getReserves();
+        lpOracle.set((reslp1 << 112) / reslp0, (reslp0 << 112) / reslp1);
+
+        treasury.convertToLp();
+
+        uint256 tbal0After = f0.balanceOf(address(treasury));
+        uint256 tbal1After = f1.balanceOf(address(treasury));
+        uint256 lbalAfter = pool.balanceOf(address(this));
+        uint256 ltbalAfter = pool.balanceOf(address(treasury));
+
+        uint256 tlp2balAfter = lpLp.pool().balanceOf(address(treasury));
+        uint256 tlp0balAfter = lp0.balanceOf(address(treasury));
+        uint256 tlp1balAfter = lp1.balanceOf(address(treasury));
+
+        emit log_named_uint("tbal0Before", tbal0Before);
+        emit log_named_uint("tbal1Before", tbal1Before);
+        emit log_named_uint("ltbalBefore", ltbalBefore);
+        emit log_named_uint("lbalBefore", lbalBefore);
+        emit log_named_uint("tbal0After", tbal0After);
+        emit log_named_uint("tbal1After", tbal1After);
+        emit log_named_uint("ltbalAfter", ltbalAfter);
+        emit log_named_uint("lbalAfter", lbalAfter);
+
+        emit log_named_uint("tlp2balAfter", tlp2balAfter);
+        emit log_named_uint("tlp0balAfter", tlp0balAfter);
+        emit log_named_uint("tlp1balAfter", tlp1balAfter);
+
+        require(tbal0After <= 10, "rev 0");
+        require(tbal1After <= 10, "rev 1");
+        require(ltbalBefore < ltbalAfter, "rev 2");
+        require(lbalBefore < lbalAfter, "rev 3");
+
+        require(tlp2balAfter == 0, "tlp2balAfter == 0");
+        require(tlp0balAfter == 0, "tlp0balAfter == 0");
+        require(tlp1balAfter == 0, "tlp1balAfter == 0");
+    }
+
     function test_convertToLp_failsSlippage(bool token0, bool isImbalanced, bool imbalanceDirection) public {
         MockOracle(address(o)).set(false, token0, !token0);
 
