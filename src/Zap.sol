@@ -367,7 +367,36 @@ contract Zap {
         return returned;
     }
 
-    //  function unstakeLP()  staked LP{s,w} -> LP
+    // staked LP{s,w} -> LP
+    function unstakeLP(uint256 _amt, uint256 _minAmtOut, bool _future0) public returns (uint256) {
+        (_future0 ? lpToken0 : lpToken1).transferFrom(msg.sender, address(this), _amt);
+
+        uint256 feeAmt = (_amt * feeBps) / 1e4;
+        (_future0 ? lpToken0 : lpToken1).transfer(address(treasury), feeAmt);
+
+        uint256 inAmt = _amt - feeAmt;
+        (uint256 res0, uint256 res1,) = lpPool.getReserves();
+        (uint256 resIn, uint256 resOut) = _future0 == lpToken0First ? (res0, res1) : (res1, res0);
+
+        uint256 num0 = (1000 * resIn) / 997 + inAmt + resOut;
+        uint256 b = (num0 - Math.sqrt(num0 ** 2 - 4 * inAmt * resOut)) / 2;
+        uint256 out = UniswapV2Utils.getAmountOut(inAmt - b, resIn, resOut);
+        require(out >= _minAmtOut, "too little received");
+
+        if (_future0) {
+            lpToken0.transfer(address(lpPool), inAmt - b);
+            lpPool.swap(lpToken0First ? 0 : out, lpToken0First ? out : 0, address(this), "");
+        } else {
+            lpToken1.transfer(address(lpPool), inAmt - b);
+            lpPool.swap(lpToken0First ? out : 0, lpToken0First ? 0 : out, address(this), "");
+        }
+
+        // b - out = 1 unit of token being sold, not worth the gas to send the token dust
+        lpSplit.burn(out);
+        pool.transfer(msg.sender, out);
+
+        return out;
+    }
 
     //  function stakeLP2()   LP -> staked LP2
     //  function unstakeLP2() staked LP2 -> LP
