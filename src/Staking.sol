@@ -1,9 +1,11 @@
 pragma solidity ^0.5.16;
 
-import "../lib/synthetix/contracts/StakingRewards.sol";
+import "./StakingRewards.sol";
 import "./interfaces/IOracle.sol";
 
 contract Staking is StakingRewards {
+    IOracle public oracle;
+    
     constructor(
         IOracle _oracle,
         address _owner,
@@ -13,5 +15,14 @@ contract Staking is StakingRewards {
     )
         public
         StakingRewards(_owner, _rewardsDistribution, _rewardsToken, _stakingToken)
-    {}
+    {
+        oracle = _oracle;
+    }
+
+    function sweepLeftovers() external {
+        require(oracle.isExpired());
+        // uint256 rew = totalSupply().mul(rewardPerToken());
+        uint256 leftover = periodFinish.sub(block.timestamp).mul(rewardRate);
+        rewardsToken.safeTransfer(owner, leftover);
+    }
 }
