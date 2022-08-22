@@ -279,7 +279,7 @@ contract Zap {
         return returned;
     }
 
-    function _sellLP(Input memory input) public returns (uint256) {
+    function _sellLP(Input memory input) internal returns (uint256) {
         // transfer LP2 tokens in
         input._pool.transferFrom(address(msg.sender), address(this), input._amt);
 
