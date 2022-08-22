@@ -13,26 +13,49 @@ import "./Treasury.sol";
 // TODO: use PRB muldiv to reduce rounding errors
 
 contract Zap {
-    SplitFactory splitFactory;
-    IUniswapV2Router02 router;
+    event Mint(uint256 amount);
+    event Burn(uint256 amount);
+    event Redeem(bool token0, uint256 amount);
+    event Buy(bool future0, uint256 amount, uint256 out);
+    event Sell(bool future0, uint256 amount, uint256 out);
+    event BuyLP(uint256 amount, uint256 out);
+    event SellLP(uint256 amount, uint256 out);
+    event StakeLP(bool future0, uint256 amount, uint256 out);
+    event UnstakeLP(bool future0, uint256 amount, uint256 out);
+    event StakeLP2(uint256 amount, uint256 out);
+    event UnstakeLP2(uint256 amount, uint256 out);
 
-    Split wethSplit;
-    Split lpSplit;
+    SplitFactory public splitFactory;
+    IUniswapV2Router02 public router;
 
-    IERC20 token0;
-    IERC20 token1;
-    IERC20 lpToken0;
-    IERC20 lpToken1;
-    Treasury treasury;
+    Split public wethSplit;
+    Split public lpSplit;
 
-    IERC20 gov;
+    IERC20 public token0;
+    IERC20 public token1;
+    IERC20 public lpToken0;
+    IERC20 public lpToken1;
 
-    IWETH weth;
+    Treasury public treasury;
+
+    IERC20 public gov;
+    IWETH public weth;
 
     bool token0First;
     bool lpToken0First;
-    IUniswapV2Pair pool;
-    IUniswapV2Pair lpPool;
+    IUniswapV2Pair public pool;
+    IUniswapV2Pair public lpPool;
+
+    struct Input {
+        uint256 _amt;
+        uint256 _minAmtOut;
+        IERC20 _inputToken;
+        IERC20 _token0;
+        IERC20 _token1;
+        IUniswapV2Pair _pool;
+        Split _split;
+        bool _token0First;
+    }
 
     constructor(
         IUniswapV2Factory _uniswapFactory,
@@ -93,6 +116,8 @@ contract Zap {
         require(msg.value > 0);
         weth.deposit{value: msg.value}();
         wethSplit.mintTo(msg.sender, msg.value);
+
+        emit Mint(msg.value);
     }
 
     function burn(uint256 _amt) public {
@@ -103,6 +128,8 @@ contract Zap {
 
         (bool success,) = msg.sender.call{value: _amt}("");
         require(success);
+
+        emit Burn(_amt);
     }
 
     function redeem(bool _token0, uint256 _amt) public {
@@ -112,17 +139,8 @@ contract Zap {
 
         (bool success,) = msg.sender.call{value: _amt}("");
         require(success);
-    }
 
-    struct Input {
-        uint256 _amt;
-        uint256 _minAmtOut;
-        IERC20 _inputToken;
-        IERC20 _token0;
-        IERC20 _token1;
-        IUniswapV2Pair _pool;
-        Split _split;
-        bool _token0First;
+        emit Redeem(_token0, _amt);
     }
 
     function _buy(Input memory input, bool _future0) internal returns (uint256) {
@@ -338,7 +356,11 @@ contract Zap {
             _token0First: token0First
         });
 
-        return _buy(input, _future0);
+        uint256 out = _buy(input, _future0);
+
+        emit Buy(_future0, _amt, out);
+
+        return out;
     }
 
     function sell(uint256 _amt, uint256 _minAmtOut, bool _future0) public returns (uint256) {
@@ -357,6 +379,8 @@ contract Zap {
         weth.withdraw(out);
         (bool success,) = msg.sender.call{value: out}("");
         require(success);
+
+        emit Sell(_future0, _amt, out);
 
         return out;
     }
@@ -380,7 +404,11 @@ contract Zap {
             _token1: token1
         });
 
-        return _buyLP(input);
+        uint256 out = _buyLP(input);
+
+        emit BuyLP(_amt, out);
+
+        return out;
     }
 
     function sellLP(uint256 _amt, uint256 _minAmtOut) public returns (uint256) {
@@ -395,13 +423,15 @@ contract Zap {
             _split: wethSplit
         });
 
-        uint256 res = _sellLP(input);
+        uint256 out = _sellLP(input);
 
-        weth.withdraw(res);
-        (bool success,) = msg.sender.call{value: res}("");
+        weth.withdraw(out);
+        (bool success,) = msg.sender.call{value: out}("");
         require(success);
 
-        return res;
+        emit SellLP(_amt, out);
+
+        return out;
     }
 
     function stakeLP(uint256 _amt, uint256 _minAmtOut, bool _future0) public payable returns (uint256) {
@@ -419,7 +449,11 @@ contract Zap {
             _token0First: lpToken0First
         });
 
-        return _buy(input, _future0);
+        uint256 out = _buy(input, _future0);
+
+        emit StakeLP(_future0, _amt, out);
+
+        return out;
     }
 
     // staked LP{s,w} -> LP
@@ -438,6 +472,8 @@ contract Zap {
         uint256 out = _sell(input, _future0);
 
         pool.transfer(msg.sender, out);
+
+        emit UnstakeLP(_future0, _amt, out);
 
         return out;
     }
@@ -458,7 +494,11 @@ contract Zap {
             _token1: lpToken1
         });
 
-        return _buyLP(input);
+        uint256 out = _buyLP(input);
+
+        emit StakeLP2(_amt, out);
+
+        return out;
     }
 
     //  staked LP2 -> LP
@@ -474,11 +514,13 @@ contract Zap {
             _split: lpSplit
         });
 
-        uint256 res = _sellLP(input);
+        uint256 out = _sellLP(input);
 
-        pool.transfer(msg.sender, res);
+        pool.transfer(msg.sender, out);
 
-        return res;
+        emit UnstakeLP2(_amt, out);
+
+        return out;
     }
 
     //  redeemPHI()  after expiry redeems PHI{s,w}   => add redeemTo function in treasury
