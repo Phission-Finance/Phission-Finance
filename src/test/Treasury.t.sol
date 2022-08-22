@@ -5,7 +5,7 @@ import "forge-std/Test.sol";
 import "../Treasury.sol";
 import "./LPUtils.sol";
 import "./MockOracle.sol";
-import "./MockUniswapV2Oracle.sol";
+import "./MockUniswapV2SlidingOracle.sol";
 import "./CheatCodes.sol";
 
 contract TreasuryTest_fork is Test {
@@ -20,8 +20,7 @@ contract TreasuryTest_fork is Test {
     WethLp lp;
     IUniswapV2Pair pool;
 
-    MockUniswapV2Oracle wethOracle;
-    MockUniswapV2Oracle lpOracle;
+    MockUniswapV2SlidingOracle uniswapOracle;
 
     Split lpSplit;
     fERC20 lp0;
@@ -66,13 +65,13 @@ contract TreasuryTest_fork is Test {
         lp.sendTo(address(lpLp), 1 ether);
         lpLp.add(1 ether);
 
-        wethOracle = new MockUniswapV2Oracle(pool.token0(), pool.token1(), 0, 0);
-        lpOracle = new MockUniswapV2Oracle(lpLp.pool().token0(), lpLp.pool().token1(), 0, 0);
+        uniswapOracle = new MockUniswapV2SlidingOracle(address(univ2fac), 6 hours, 6);
+        require(address(uniswapOracle) != address(0));
 
-        treasury = new Treasury(sf, univ2fac, univ2router, gov, wethOracle, lpOracle, weth);
+        treasury = new Treasury(sf, univ2fac, univ2router, gov, uniswapOracle, weth);
         govlp.sendAllTo(address(treasury));
 
-        weth.deposit{value: 20 ether}();
+        weth.deposit{value : 20 ether}();
         weth.approve(address(s), type(uint256).max);
         s.mint(20 ether);
     }
@@ -128,9 +127,9 @@ contract TreasuryTest_fork is Test {
 
         LP govEthLp = new LP(gov, weth);
         gov.mint(address(govEthLp), 1 ether);
-        weth.deposit{value: 3 ether}();
+        weth.deposit{value : 3 ether}();
         weth.transfer(address(treasury), 1 ether);
-        address(treasury).call{value: 1 ether}("");
+        address(treasury).call{value : 1 ether}("");
 
         weth.transfer(address(govEthLp), 2 ether);
         govEthLp.add(1 ether, 2 ether);
@@ -157,7 +156,7 @@ contract TreasuryTest_fork is Test {
         emit log_named_uint("govlp.pool().balanceOf(address(treasury))", govlp.pool().balanceOf(address(treasury)));
         emit log_named_uint(
             "govEthLp.pool().balanceOf(address(treasury))", govEthLp.pool().balanceOf(address(treasury))
-            );
+        );
         emit log_named_uint("lp.pool().balanceOf(address(treasury))", lp.pool().balanceOf(address(treasury)));
         emit log_named_uint("weth.balanceOf(address(treasury))", weth.balanceOf(address(treasury)));
         emit log_named_uint("address(treasury).balance", address(treasury).balance);
@@ -217,7 +216,7 @@ contract TreasuryTest_fork is Test {
         uint256 lbalBefore = pool.balanceOf(address(this));
         uint256 ltbalBefore = pool.balanceOf(address(treasury));
 
-        wethOracle.set((res1 << 112) / res0, (res0 << 112) / res1);
+        uniswapOracle.set(lp.pool().token0(), lp.pool().token1(), (res1 << 112) / res0, (res0 << 112) / res1);
 
         treasury.convertToLp();
 
@@ -250,7 +249,7 @@ contract TreasuryTest_fork is Test {
         bool lpTokn0,
         bool lpImbalance
     )
-        public
+    public
     {
         MockOracle(address(o)).set(false, token0, !token0);
 
@@ -291,10 +290,10 @@ contract TreasuryTest_fork is Test {
         uint256 ltbalBefore = pool.balanceOf(address(treasury));
 
         (uint256 res0, uint256 res1,) = lp.pool().getReserves();
-        wethOracle.set((res1 << 112) / res0, (res0 << 112) / res1);
+        uniswapOracle.set(lp.pool().token0(), lp.pool().token1(),(res1 << 112) / res0, (res0 << 112) / res1);
 
         (uint256 reslp0, uint256 reslp1,) = lpLp.pool().getReserves();
-        lpOracle.set((reslp1 << 112) / reslp0, (reslp0 << 112) / reslp1);
+        uniswapOracle.set(lpLp.pool().token0(), lpLp.pool().token1(),(reslp1 << 112) / reslp0, (reslp0 << 112) / reslp1);
 
         treasury.convertToLp();
 
@@ -355,7 +354,7 @@ contract TreasuryTest_fork is Test {
         uint256 lbalBefore = pool.balanceOf(address(this));
         uint256 ltbalBefore = pool.balanceOf(address(treasury));
 
-        wethOracle.set((res1 << 112) / res0, (res0 << 112) / res1);
+        uniswapOracle.set(lp.pool().token0(), lp.pool().token1(),(res1 << 112) / res0, (res0 << 112) / res1);
 
         try treasury.convertToLp() {
             revert("should fail slippage too high");
@@ -383,12 +382,10 @@ contract TreasuryTest_fork is Test {
 
         (uint256 res0, uint256 res1,) = lp.pool().getReserves();
 
-        wethOracle.set((res1 << 112) / res0, (res0 << 112) / res1);
+        uniswapOracle.set(lp.pool().token0(), lp.pool().token1(),(res1 << 112) / res0, (res0 << 112) / res1);
 
         emit log_named_uint("res0", res0);
         emit log_named_uint("res1", res1);
-        emit log_named_uint("avg0", wethOracle.avg0());
-        emit log_named_uint("avg1", wethOracle.avg1());
 
         // move pool away from oracle price
         // need to sell token{0,1}, so make token{1,0} more expensive to fail it
