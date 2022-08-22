@@ -54,28 +54,4 @@ contract SplitFactoryTest_fork is Test {
         // assert
         assertEq(address(sf.locks(weth)), lock, "Should have created lock for weth if it doesnt exist");
     }
-
-    function test_create(address deployer) public {
-        // arrange
-        vm.prank(deployer);
-        ERC20 token = new ERC20("Test", "TTT");
-
-        // act
-        address split = address(sf.create(token));
-
-        // assert
-        assertEq(address(sf.splits(token)), split, "Should have created split for token");
-    }
-
-    function test_createLock(address deployer) public {
-        // arrange
-        vm.prank(deployer);
-        ERC20 token = new ERC20("Test", "TTT");
-
-        // act
-        address split = address(sf.createLock(token));
-
-        // assert
-        assertEq(address(sf.locks(token)), split, "Should have created lock for token");
-    }
 }

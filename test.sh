@@ -25,7 +25,7 @@ echo "SENDER $SENDER"
 
 TEST="before merge"
 
-echo "testing: $TEST" && forge test --fork-url $RPC_URL  --etherscan-api-key $ETHERSCAN_KEY --chain-id 1 --no-match-test "_pos|_pow" --match-contract "SplitFactoryTest_fork" --sender $SENDER -vvv
+echo "testing: $TEST" && forge test --fork-url $RPC_URL  --etherscan-api-key $ETHERSCAN_KEY --chain-id 1 --no-match-test "_pos|_pow" --match-contract "TestGovToken" --sender $SENDER -vvv
 
 # TEST="after merge on pos"
 

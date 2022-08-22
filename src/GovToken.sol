@@ -9,7 +9,7 @@ contract GovToken is ERC20, Ownable {
     constructor() ERC20("Phission Token", "PHI") Ownable() {}
 
     function mint(address to, uint256 wad) public onlyOwner {
-        require(totalSupply() + wad <= MAX_SUPPLY);
+        require(totalSupply() + wad <= MAX_SUPPLY, "Amount exceeds max supply");
         _mint(to, wad);
     }
 
