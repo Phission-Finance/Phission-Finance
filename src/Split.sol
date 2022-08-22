@@ -23,15 +23,11 @@ contract Split {
     }
 
     function mint(uint256 _wad) public {
-        require(!oracle.isExpired());
-
-        future0.mint(msg.sender, _wad);
-        future1.mint(msg.sender, _wad);
-        underlying.transferFrom(msg.sender, address(this), _wad);
+        mintTo(msg.sender, _wad);
     }
 
     function mintTo(address _who, uint256 _wad) public {
-        require(!oracle.isExpired());
+        require(!oracle.isExpired(), "Merge has already happened");
 
         future0.mint(_who, _wad);
         future1.mint(_who, _wad);
@@ -39,7 +35,7 @@ contract Split {
     }
 
     function burn(uint256 _wad) public {
-        require(!oracle.isExpired());
+        require(!oracle.isExpired(), "Merge has already happened");
 
         future0.burn(msg.sender, _wad);
         future1.burn(msg.sender, _wad);
@@ -47,11 +43,12 @@ contract Split {
     }
 
     function redeem(uint256 _wad) public {
-        require(oracle.isExpired());
+        require(oracle.isExpired(), "Merge has not happened yet");
 
         if (oracle.isRedeemable(true)) {
             future0.burn(msg.sender, _wad);
         }
+
         if (oracle.isRedeemable(false)) {
             future1.burn(msg.sender, _wad);
         }

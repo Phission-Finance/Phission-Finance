@@ -4,16 +4,16 @@ import "../IUniswapV2SlidingOracle.sol";
 import "forge-std/Test.sol";
 
 contract MockUniswapV2SlidingOracle is IUniswapV2SlidingOracle, Test {
-    mapping(bytes32 => uint224)  public avg; // pair hash to avg price,
+    mapping(bytes32 => uint224) public avg; // pair hash to avg price,
 
-    uint public updated = 0;
+    uint256 public updated = 0;
 
     address public factory;
-    uint public windowSize;
+    uint256 public windowSize;
     uint8 public granularity;
-    uint public periodSize;
+    uint256 public periodSize;
 
-    constructor(address factory_, uint windowSize_, uint8 granularity_) {
+    constructor(address factory_, uint256 windowSize_, uint8 granularity_) {
         factory = factory_;
         windowSize = windowSize_;
         granularity = granularity_;
@@ -35,8 +35,8 @@ contract MockUniswapV2SlidingOracle is IUniswapV2SlidingOracle, Test {
         avg[keccak256(abi.encode(_token1, _token0))] = uint224(_ret1);
     }
 
-    function observationIndexOf(uint timestamp) public view returns (uint8 index) {
-        uint epochPeriod = timestamp / periodSize;
+    function observationIndexOf(uint256 timestamp) public view returns (uint8 index) {
+        uint256 epochPeriod = timestamp / periodSize;
         return uint8(epochPeriod % granularity);
     }
 

@@ -8,18 +8,14 @@ import "../Split.sol";
 import "../Factory.sol";
 import "./MockOracle.sol";
 
-// TODO: test factory
-
 contract SplitFactoryTest_fork is Test {
     IERC20 weth = IERC20(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
 
     IOracle o;
-    Split s;
     SplitFactory sf;
 
     function setUp() public {
         o = IOracle(address(new MockOracle(false, true, false)));
-        s = new Split(weth, o);
         sf = new SplitFactory(o);
     }
 
