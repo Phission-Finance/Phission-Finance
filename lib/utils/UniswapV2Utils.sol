@@ -1,5 +1,8 @@
 pragma solidity ^0.8.0;
 
+import "./Math.sol";
+import "../prb-math/contracts/PRBMath.sol";
+
 library UniswapV2Utils {
 
     // returns sorted token addresses, used to handle return values from pairs sorted in this order
@@ -27,5 +30,31 @@ library UniswapV2Utils {
         uint numerator = amountInWithFee * reserveOut;
         uint denominator = reserveIn * 1000 + amountInWithFee;
         amountOut = numerator / denominator;
+    }
+
+    function computeLiquidityValue(
+        uint256 reservesA,
+        uint256 reservesB,
+        uint256 totalSupply,
+        uint256 liquidityAmount,
+        bool feeOn,
+        uint256 kLast
+    )
+    internal
+    pure
+    returns (uint256 tokenAAmount, uint256 tokenBAmount)
+    {
+        if (feeOn && kLast > 0) {
+            uint256 rootK = Math.sqrt(reservesA * reservesB);
+            uint256 rootKLast = Math.sqrt(kLast);
+            if (rootK > rootKLast) {
+                uint256 numerator1 = totalSupply;
+                uint256 numerator2 = rootK - rootKLast;
+                uint256 denominator = rootK * 5 + rootKLast;
+                uint256 feeLiquidity = PRBMath.mulDiv(numerator1, numerator2, denominator);
+                totalSupply = totalSupply + feeLiquidity;
+            }
+        }
+        return ((reservesA * liquidityAmount) / totalSupply, (reservesB * liquidityAmount) / totalSupply);
     }
 }
