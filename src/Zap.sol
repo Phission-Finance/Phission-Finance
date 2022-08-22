@@ -114,10 +114,9 @@ contract Zap {
         require(success);
     }
 
-    struct BuySellInput {
+    struct Input {
         uint256 _amt;
         uint256 _minAmtOut;
-        bool _future0;
         IERC20 _inputToken;
         IERC20 _token0;
         IERC20 _token1;
@@ -126,29 +125,7 @@ contract Zap {
         bool _token0First;
     }
 
-    struct SellLPInput {
-        uint256 _amt;
-        uint256 _minAmount;
-        IUniswapV2Pair _pool;
-        IERC20 _token0;
-        IERC20 _token1;
-        bool _token0First;
-        IERC20 _inputToken;
-        Split _split;
-    }
-
-    struct BuyLPInput {
-        uint256 _amt;
-        uint256 _minAmount;
-        IERC20 _inputToken;
-        Split _split;
-        IUniswapV2Pair _pool;
-        bool _token0First;
-        IERC20 _token0;
-        IERC20 _token1;
-    }
-
-    function _buy(BuySellInput memory input) internal returns (uint256) {
+    function _buy(Input memory input, bool _future0) internal returns (uint256) {
         uint256 feeAmt = (input._amt * feeBps) / 1e4;
         input._inputToken.transfer(address(treasury), feeAmt);
 
@@ -159,7 +136,7 @@ contract Zap {
         (uint112 res0, uint112 res1,) = input._pool.getReserves();
 
         uint256 out;
-        if (input._future0) {
+        if (_future0) {
             input._token1.transfer(address(input._pool), inAmt);
 
             // t1 in t0 out
@@ -183,22 +160,22 @@ contract Zap {
         return returned;
     }
 
-    function _sell(BuySellInput memory input) internal returns (uint256) {
-        (input._future0 ? input._token0 : input._token1).transferFrom(msg.sender, address(this), input._amt);
+    function _sell(Input memory input, bool _future0) internal returns (uint256) {
+        (_future0 ? input._token0 : input._token1).transferFrom(msg.sender, address(this), input._amt);
 
         uint256 feeAmt = (input._amt * feeBps) / 1e4;
-        (input._future0 ? input._token0 : input._token1).transfer(address(treasury), feeAmt);
+        (_future0 ? input._token0 : input._token1).transfer(address(treasury), feeAmt);
 
         uint256 inAmt = input._amt - feeAmt;
         (uint256 res0, uint256 res1,) = input._pool.getReserves();
-        (uint256 resIn, uint256 resOut) = input._future0 == input._token0First ? (res0, res1) : (res1, res0);
+        (uint256 resIn, uint256 resOut) = _future0 == input._token0First ? (res0, res1) : (res1, res0);
 
         uint256 num0 = (1000 * resIn) / 997 + inAmt + resOut;
         uint256 b = (num0 - Math.sqrt(num0 ** 2 - 4 * inAmt * resOut)) / 2;
         uint256 out = UniswapV2Utils.getAmountOut(inAmt - b, resIn, resOut);
         require(out >= input._minAmtOut, "too little received");
 
-        if (input._future0) {
+        if (_future0) {
             input._token0.transfer(address(input._pool), inAmt - b);
             input._pool.swap(input._token0First ? 0 : out, input._token0First ? out : 0, address(this), "");
         } else {
@@ -212,7 +189,7 @@ contract Zap {
         return out;
     }
 
-    function _buyLP(BuyLPInput memory input) internal returns (uint256) {
+    function _buyLP(Input memory input) internal returns (uint256) {
         uint256 feeAmt = (input._amt * feeBps) / 1e4;
         input._inputToken.transfer(address(treasury), feeAmt);
 
@@ -280,11 +257,11 @@ contract Zap {
             );
         }
 
-        require(returned > input._minAmount, "too little received");
+        require(returned > input._minAmtOut, "too little received");
         return returned;
     }
 
-    function _sellLP(SellLPInput memory input) public returns (uint256) {
+    function _sellLP(Input memory input) public returns (uint256) {
         // transfer LP2 tokens in
         input._pool.transferFrom(address(msg.sender), address(this), input._amt);
 
@@ -334,7 +311,7 @@ contract Zap {
         }
 
         uint256 res = a0 + out;
-        require(res > input._minAmount, "too little received");
+        require(res > input._minAmtOut, "too little received");
 
         input._split.burn(res);
 
@@ -350,10 +327,9 @@ contract Zap {
             weth.transferFrom(msg.sender, address(this), _amt);
         }
 
-        BuySellInput memory input = BuySellInput({
+        Input memory input = Input({
             _amt: _amt,
             _minAmtOut: _minAmtOut,
-            _future0: _future0,
             _inputToken: weth,
             _token0: token0,
             _token1: token1,
@@ -362,14 +338,13 @@ contract Zap {
             _token0First: token0First
         });
 
-        return _buy(input);
+        return _buy(input, _future0);
     }
 
     function sell(uint256 _amt, uint256 _minAmtOut, bool _future0) public returns (uint256) {
-        BuySellInput memory input = BuySellInput({
+        Input memory input = Input({
             _amt: _amt,
             _minAmtOut: _minAmtOut,
-            _future0: _future0,
             _inputToken: weth,
             _token0: token0,
             _token1: token1,
@@ -377,7 +352,7 @@ contract Zap {
             _split: wethSplit,
             _token0First: token0First
         });
-        uint256 out = _sell(input);
+        uint256 out = _sell(input, _future0);
 
         weth.withdraw(out);
         (bool success,) = msg.sender.call{value: out}("");
@@ -386,7 +361,7 @@ contract Zap {
         return out;
     }
 
-    function buyLP(uint256 _amt, uint256 _minAmount) public payable returns (uint256) {
+    function buyLP(uint256 _amt, uint256 _minAmtOut) public payable returns (uint256) {
         if (msg.value > 0) {
             require(msg.value == _amt, "amt != msg.value");
             weth.deposit{value: msg.value}();
@@ -394,9 +369,9 @@ contract Zap {
             weth.transferFrom(msg.sender, address(this), _amt);
         }
 
-        BuyLPInput memory input = BuyLPInput({
+        Input memory input = Input({
             _amt: _amt,
-            _minAmount: _minAmount,
+            _minAmtOut: _minAmtOut,
             _inputToken: weth,
             _split: wethSplit,
             _pool: pool,
@@ -408,10 +383,10 @@ contract Zap {
         return _buyLP(input);
     }
 
-    function sellLP(uint256 _amt, uint256 _minAmount) public returns (uint256) {
-        SellLPInput memory input = SellLPInput({
+    function sellLP(uint256 _amt, uint256 _minAmtOut) public returns (uint256) {
+        Input memory input = Input({
             _amt: _amt,
-            _minAmount: _minAmount,
+            _minAmtOut: _minAmtOut,
             _pool: pool,
             _token0: token0,
             _token1: token1,
@@ -433,10 +408,9 @@ contract Zap {
         // transfer the lp tokens in
         pool.transferFrom(msg.sender, address(this), _amt);
 
-        BuySellInput memory input = BuySellInput({
+        Input memory input = Input({
             _amt: _amt,
             _minAmtOut: _minAmtOut,
-            _future0: _future0,
             _inputToken: IERC20(address(pool)),
             _token0: lpToken0,
             _token1: lpToken1,
@@ -445,15 +419,14 @@ contract Zap {
             _token0First: lpToken0First
         });
 
-        return _buy(input);
+        return _buy(input, _future0);
     }
 
     // staked LP{s,w} -> LP
     function unstakeLP(uint256 _amt, uint256 _minAmtOut, bool _future0) public returns (uint256) {
-        BuySellInput memory input = BuySellInput({
+        Input memory input = Input({
             _amt: _amt,
             _minAmtOut: _minAmtOut,
-            _future0: _future0,
             _inputToken: IERC20(address(pool)),
             _token0: lpToken0,
             _token1: lpToken1,
@@ -462,7 +435,7 @@ contract Zap {
             _token0First: lpToken0First
         });
 
-        uint256 out = _sell(input);
+        uint256 out = _sell(input, _future0);
 
         pool.transfer(msg.sender, out);
 
@@ -470,13 +443,13 @@ contract Zap {
     }
 
     // LP -> LP^2
-    function stakeLP2(uint256 _amt, uint256 _minAmount) public payable returns (uint256) {
+    function stakeLP2(uint256 _amt, uint256 _minAmtOut) public payable returns (uint256) {
         // transfer lp tokens in
         pool.transferFrom(msg.sender, address(this), _amt);
 
-        BuyLPInput memory input = BuyLPInput({
+        Input memory input = Input({
             _amt: _amt,
-            _minAmount: _minAmount,
+            _minAmtOut: _minAmtOut,
             _inputToken: IERC20(address(pool)),
             _split: lpSplit,
             _pool: lpPool,
@@ -489,10 +462,10 @@ contract Zap {
     }
 
     //  staked LP2 -> LP
-    function unstakeLP2(uint256 _amt, uint256 _minAmount) public returns (uint256) {
-        SellLPInput memory input = SellLPInput({
+    function unstakeLP2(uint256 _amt, uint256 _minAmtOut) public returns (uint256) {
+        Input memory input = Input({
             _amt: _amt,
-            _minAmount: _minAmount,
+            _minAmtOut: _minAmtOut,
             _pool: lpPool,
             _token0: lpToken0,
             _token1: lpToken1,
