@@ -12,6 +12,8 @@ interface IStaking {
 
     function stake(uint256 amount) external;
 
+    function withdraw(uint256 amount) external;
+
     function getReward() external;
 
     function setRewardsDuration(uint256 _rewardsDuration) external;
@@ -20,6 +22,10 @@ interface IStaking {
 
     function exitAndSweep() external;
 }
+
+// TODO:
+//      CANT USE THIS, NEED TO PLAN REWARDS TO STOP AT A CERTAIN TIME
+//      POST MERGE, NEED TO ALSO MAKE TREASURY NOT REDEEM BEFORE THEN
 
 contract StakingTest_fork is Test {
     IWETH weth = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
@@ -41,7 +47,7 @@ contract StakingTest_fork is Test {
         uint8 nonce = 5;
 
         address predicted =
-            address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xd6), bytes1(0x94), address(this), bytes1(nonce))))));
+        address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xd6), bytes1(0x94), address(this), bytes1(nonce))))));
 
         deal(address(stakeToken), address(this), 1);
         stakeToken.approve(predicted, type(uint256).max);
@@ -106,6 +112,178 @@ contract StakingTest_fork is Test {
 
         require(gov.balanceOf(address(staking)) < 1e6, "too much dust left");
     }
+
+
+    mapping(address => uint) stakers;
+
+    function userStake(uint id, uint amt) internal {
+        address user = address(uint160(uint256(keccak256(abi.encode(id)))));
+        deal(address(stakeToken), user, amt);
+
+        vm.startPrank(user, user);
+        stakeToken.approve(address(staking), amt);
+        staking.stake(amt);
+        vm.stopPrank();
+
+        stakers[user] += amt;
+    }
+
+    function userUnstake(uint id, bool withdraw, bool claim, bool exitAndSweep) internal {
+        address user = address(uint160(uint256(keccak256(abi.encode(id)))));
+
+        vm.startPrank(user, user);
+        if (withdraw) {
+            staking.withdraw(stakers[user]);
+        }
+        if (claim) {
+            staking.getReward();
+        }
+        if (exitAndSweep) {
+            staking.exitAndSweep();
+        }
+        vm.stopPrank();
+
+        stakers[user] = 0;
+    }
+
+    function test_sweepFailsBeforeExpire() public {
+        deal(address(stakeToken), address(this), 1 ether);
+        skip(1 days);
+
+        stakeToken.approve(address(staking), 1 ether);
+        staking.stake(1 ether);
+        skip(2 days);
+
+        try staking.exitAndSweep() {revert("should fail");} catch {}
+    }
+
+    // leftovers = 496031746495844
+    function test_manystakers_1(bool beforeSweep, uint256 seed) public {
+        if (seed == 0 ||
+            seed % 1 hours < 1 minutes
+        ) return;
+
+        uint endTime = block.timestamp + 7 days;
+
+        skip(seed % (1 hours));
+
+        console.log("a. time left", endTime - block.timestamp);
+
+        uint users = 20;
+
+        for (uint i = 0; i < users; i++) {
+            userStake(i, 1 ether);
+            skip(seed % (2 hours));
+        }
+
+        console.log("b. time left", endTime - block.timestamp);
+
+        skip(seed % (2 days));
+
+        console.log("EXPIRED");
+
+        // expire oracle
+        mockOracle.set(true, true, true);
+
+        console.log("c. time left", endTime - block.timestamp);
+
+        skip(seed % (2 days));
+
+        console.log("d. time left", endTime - block.timestamp);
+
+        for (uint i = 0; i < users; i++) {
+            uint rand = uint(blockhash(block.number));
+            bool sweep = i == (rand % users);
+            userUnstake(i,
+                !sweep,
+                !sweep && rand % 3 == 0,
+                sweep);
+            skip(seed % (2 hours));
+        }
+
+        // remove all rewards
+        for (uint i = 0; i < users; i++) {
+            userUnstake(i,
+                false,
+                true,
+                false);
+            skip(seed % (2 hours));
+        }
+
+        console.log("rewards left", gov.balanceOf(address(staking)));
+
+        console.log("time left", endTime - block.timestamp);
+
+        //  seed with   1 =>    leftovers = 8267196231271
+        //  seed with  1E =>    leftovers = 30924246495826
+
+        require(gov.balanceOf(address(staking)) < 1e6, "too much dust left");
+    }
+
+
+    function non0rand(uint seed, uint max) internal returns (uint) {
+        uint rand = seed % max;
+        while (rand == 0) {rand = uint(keccak256(abi.encode(seed))) % max;}
+        return rand;
+    }
+
+    // leftovers = 21056547619509784
+    function test_manystakers_2(bool beforeSweep, uint256 seed) public {
+        uint endTime = block.timestamp + 7 days;
+        skip(non0rand(seed, 1 hours));
+
+        uint users = 20;
+
+        for (uint i = 0; i < users; i++) {
+            userStake(i, 1 ether);
+            skip(non0rand(seed, 2 hours));
+        }
+
+        console.log("a. time left", endTime - block.timestamp);
+
+
+        skip(non0rand(seed, 2 days));
+
+        console.log("b. time left", endTime - block.timestamp);
+
+        // expire oracle
+        mockOracle.set(true, true, true);
+        console.log("EXPIRED");
+
+        skip(non0rand(seed, 1 days));
+
+        console.log("c. time left", endTime - block.timestamp);
+
+        skip(non0rand(seed, 1 days));
+
+        console.log("d. time left", endTime - block.timestamp);
+
+        for (uint i = 0; i < users; i++) {
+            uint rand = uint(blockhash(block.number));
+            bool sweep = i == (rand % users);
+            userUnstake(i,
+                !sweep,
+                !sweep && rand % 3 == 0,
+                sweep);
+            skip(non0rand(seed, 2 hours));
+        }
+
+        // remove all rewards
+        for (uint i = 0; i < users; i++) {
+            userUnstake(i,
+                false,
+                true,
+                false);
+            skip(non0rand(seed, 2 hours));
+        }
+
+        console.log("rewards left", gov.balanceOf(address(staking)));
+
+        console.log("endTime, timestamp", endTime, block.timestamp);
+
+        require(gov.balanceOf(address(staking)) < 1e6, "too much dust left");
+    }
+
 
     receive() external payable {}
 }

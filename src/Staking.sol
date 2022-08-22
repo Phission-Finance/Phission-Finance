@@ -16,8 +16,8 @@ contract Staking is StakingRewards {
         address _rewardsToken,
         address _stakingToken
     )
-    public
-    StakingRewards(_owner, _rewardsDistribution, _rewardsToken, _stakingToken)
+        public
+        StakingRewards(_owner, _rewardsDistribution, _rewardsToken, _stakingToken)
     {
         oracle = _oracle;
         stake(1);
@@ -36,8 +36,9 @@ contract Staking is StakingRewards {
     }
 
     function exitAndSweep() external {
-        if (!leftoversSwept)
+        if (!leftoversSwept) {
             sweepLeftovers();
+        }
 
         withdraw(balanceOf(msg.sender));
         getReward();
