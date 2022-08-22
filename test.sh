@@ -1,4 +1,4 @@
-#! /bin/sh
+#!/bin/bash
 
 RPC_URL=""
 ETHERSCAN_KEY=""
@@ -9,28 +9,26 @@ ETHERSCAN_KEY=""
 # random sender so token0 and token1 in uniswap can end up reversed
 SENDER="0x$(openssl rand -hex 20)"
 
-echo "SENDER $SENDER"
-
-TEST="(without rpc) before merge"
+TEST="[1] (without rpc) before merge"
 
 echo "testing: $TEST" && forge test --chain-id 1 --block-difficulty 1 --no-match-test "_pos|_pow" --no-match-contract "_fork" --sender $SENDER -vvv
 
-TEST="(without rpc) after merge on pos"
+TEST="[2] (without rpc) after merge on pos"
 
 echo "testing: $TEST" && forge test --chain-id 1 --block-difficulty 18446744073709551615  --match-test "_pos" --no-match-contract "_fork" --sender $SENDER -vvv
 
-TEST="(without rpc) after merge on pow"
+TEST="[3] (without rpc) after merge on pow"
 
 echo "testing: $TEST" && forge test --chain-id 1337 --block-difficulty 1  --match-test "_pow" --no-match-contract "_fork" --sender $SENDER -vvv
 
-TEST="before merge"
+TEST="[4] before merge"
 
-echo "testing: $TEST" && forge test --fork-url $RPC_URL  --etherscan-api-key $ETHERSCAN_KEY --chain-id 1 --no-match-test "_pos|_pow" --match-contract "_fork" --sender $SENDER -vvv
+echo "testing: $TEST" && forge test --fork-url $RPC_URL  --etherscan-api-key $ETHERSCAN_KEY --chain-id 1 --no-match-test "_pos|_pow" --match-contract "_fork" --sender $SENDER -vvvvvv
 
-TEST="after merge on pos"
+TEST="[5] after merge on pos"
 
-echo "testing: $TEST" && forge test --fork-url $RPC_URL  --etherscan-api-key $ETHERSCAN_KEY --chain-id 1 --block-difficulty 18446744073709551615  --match-test "_pos" --match-contract "_fork" --sender $SENDER -vvv
+echo "testing: $TEST" && forge test --fork-url $RPC_URL  --etherscan-api-key $ETHERSCAN_KEY --chain-id 1 --block-difficulty 18446744073709551615  --match-test "_pos" --match-contract "_fork" --sender $SENDER -vvvvvv
 
-TEST="after merge on pow"
+TEST="[6] after merge on pow"
 
-echo "testing: $TEST" && forge test --fork-url $RPC_URL  --etherscan-api-key $ETHERSCAN_KEY --chain-id 1337  --match-test "_pow" --match-contract "_fork" --sender $SENDER -vvv
+echo "testing: $TEST" && forge test --fork-url $RPC_URL  --etherscan-api-key $ETHERSCAN_KEY --chain-id 1337  --match-test "_pow" --match-contract "_fork" --sender $SENDER -vvvvvv

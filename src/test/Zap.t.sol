@@ -5,7 +5,7 @@ import "forge-std/Test.sol";
 import "../Zap.sol";
 import "./MockOracle.sol";
 import "./LPUtils.sol";
-import "./MockUniswapV2Oracle.sol";
+import "./MockUniswapV2SlidingOracle.sol";
 import "../../lib/utils/IWETH.sol";
 
 contract ZapTest_fork is Test {
@@ -13,6 +13,8 @@ contract ZapTest_fork is Test {
     Treasury treasury;
     GovToken gov;
     IOracle o;
+
+    MockUniswapV2SlidingOracle uniswapOracle;
 
     Split s;
     fERC20 f0;
@@ -33,7 +35,7 @@ contract ZapTest_fork is Test {
         s = sf.create(weth);
         (f0, f1) = s.futures();
 
-        lp = new WethLp{value: 40 ether}(sf);
+        lp = new WethLp{value : 40 ether}(sf);
 
         sLp = sf.create(IERC20(address(lp.pool())));
         SplitLp lpLp = new SplitLp(sf, IERC20(address(lp.pool())));
@@ -42,16 +44,16 @@ contract ZapTest_fork is Test {
         lp.sendTo(address(lpLp), 1 ether);
         lpLp.add(1 ether);
 
-        MockUniswapV2Oracle wethOracle = new MockUniswapV2Oracle(lp.pool().token0(), lp.pool().token1(), 0, 0);
-        MockUniswapV2Oracle lpOracle = new MockUniswapV2Oracle(lpLp.pool().token0(), lpLp.pool().token1(), 0, 0);
+        uniswapOracle = new MockUniswapV2SlidingOracle(address(univ2fac), 6 hours, 6);
+        require(address(uniswapOracle) != address(0));
 
         gov = new GovToken();
         sf.create(IERC20(address(gov)));
 
-        treasury = new Treasury(sf, univ2fac, univ2router, gov, wethOracle, lpOracle, weth);
+        treasury = new Treasury(sf, univ2fac, univ2router, gov, uniswapOracle, weth);
         //        gov = treasury.gov();
 
-        weth.deposit{value: 10 ether}();
+        weth.deposit{value : 10 ether}();
         weth.approve(address(s), type(uint256).max);
 
         uint256 gas = gasleft();
@@ -72,7 +74,7 @@ contract ZapTest_fork is Test {
         uint256 bal1Before = f1.balanceOf(address(this));
 
         uint256 gas = gasleft();
-        z.mint{value: amt}();
+        z.mint{value : amt}();
         emit log_named_uint("ZAP::MINT() gas usage", gas - gasleft());
 
         uint256 balEthAfter = address(this).balance;
@@ -98,7 +100,7 @@ contract ZapTest_fork is Test {
             return;
         }
 
-        z.mint{value: amt}();
+        z.mint{value : amt}();
 
         balEthBefore = address(this).balance;
         uint256 bal0Before = f0.balanceOf(address(this));
@@ -134,7 +136,7 @@ contract ZapTest_fork is Test {
             return;
         }
 
-        z.mint{value: amt}();
+        z.mint{value : amt}();
 
         balEthBefore = address(this).balance;
         uint256 bal0Before = f0.balanceOf(address(this));
@@ -203,7 +205,7 @@ contract ZapTest_fork is Test {
 
         uint256 gas = gasleft();
         //        z.buy{value : 1 ether}(1 ether, 0, token0);
-        uint256 returnedValue = z.buy{value: 0.01 ether}(0.01 ether, 0, token0);
+        uint256 returnedValue = z.buy{value : 0.01 ether}(0.01 ether, 0, token0);
         emit log_named_uint("ZAP::BUY(fee before) gas usage", gas - gasleft());
 
         uint256 balanceAfter = address(this).balance;
@@ -239,7 +241,7 @@ contract ZapTest_fork is Test {
         (token0 ? f0 : f1).transfer(address(treasury), 1 ether);
         uint256 tokenBought = (token0 ? f0 : f1).balanceOf(address(this));
 
-        z.buy{value: 1 ether}(1 ether, 0, token0);
+        z.buy{value : 1 ether}(1 ether, 0, token0);
 
         tokenBought = (token0 ? f0 : f1).balanceOf(address(this)) - tokenBought;
 
@@ -314,7 +316,7 @@ contract ZapTest_fork is Test {
         emit log_named_uint("f1treasury", f1treasuryBefore);
 
         uint256 gas = gasleft();
-        uint256 returnedValue = z.buyLP{value: 1 ether}(1 ether, 0);
+        uint256 returnedValue = z.buyLP{value : 1 ether}(1 ether, 0);
         emit log_named_uint("ZAP::BUYLP() gas usage", gas - gasleft());
 
         uint256 balanceAfter = address(this).balance;
@@ -348,7 +350,7 @@ contract ZapTest_fork is Test {
             lp.trade(10 ether, imbalanceDirection);
         }
 
-        z.buyLP{value: 1 ether}(1 ether, 0);
+        z.buyLP{value : 1 ether}(1 ether, 0);
 
         uint256 balanceBefore = address(this).balance;
         uint256 f0thisBefore = f0.balanceOf(address(this));
