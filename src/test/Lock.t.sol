@@ -18,6 +18,11 @@ contract TestLock_fork is Test {
         weth.approve(address(l), type(uint256).max);
     }
 
+    function test_itInits() public {
+        assertEq(address(l.underlying()), address(weth), "Should have set weth as the underlying");
+        assertEq(address(l.oracle()), address(o), "Should have set oracle");
+    }
+
     function test_lockIncrementsBalance() public {
         // arrange
         uint256 amount = 1 ether;
