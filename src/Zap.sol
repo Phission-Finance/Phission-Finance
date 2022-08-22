@@ -114,6 +114,55 @@ contract Zap {
         require(success);
     }
 
+    function _buy(
+        uint256 _amt,
+        uint256 _minAmtOut,
+        bool _future0,
+        IERC20 _inputToken,
+        IERC20 _token0,
+        IERC20 _token1,
+        IUniswapV2Pair _pool,
+        Split _split,
+        bool _token0First
+    )
+        internal
+        returns (uint256)
+    {
+        uint256 feeAmt = (_amt * feeBps) / 1e4;
+        _inputToken.transfer(address(treasury), feeAmt);
+
+        uint256 inAmt = _amt - feeAmt;
+
+        _split.mint(inAmt);
+
+        (uint112 res0, uint112 res1,) = _pool.getReserves();
+
+        uint256 out;
+        if (_future0) {
+            _token1.transfer(address(_pool), inAmt);
+
+            // t1 in t0 out
+            // if token0first => res0 => t0 reserves
+            // token 1 reserves = token0First ? res1 : res0
+            out = UniswapV2Utils.getAmountOut(inAmt, _token0First ? res1 : res0, _token0First ? res0 : res1);
+
+            // token0out = _token0First ? out:0
+            _pool.swap(_token0First ? out : 0, _token0First ? 0 : out, address(msg.sender), "");
+
+            _token0.transfer(address(msg.sender), inAmt);
+        } else {
+            _token0.transfer(address(_pool), inAmt);
+            out = UniswapV2Utils.getAmountOut(inAmt, _token0First ? res0 : res1, _token0First ? res1 : res0);
+            _pool.swap(_token0First ? 0 : out, _token0First ? out : 0, address(msg.sender), "");
+            _token1.transfer(address(msg.sender), inAmt);
+        }
+
+        uint256 returned = inAmt + out;
+        require(returned >= _minAmtOut, "too little received");
+        return returned;
+    }
+
+    // ETH -> WETH{w,s}
     function buy(uint256 _amt, uint256 _minAmtOut, bool _future0) public payable returns (uint256) {
         if (msg.value > 0) {
             require(msg.value == _amt, "amt != msg.value");
@@ -122,38 +171,7 @@ contract Zap {
             weth.transferFrom(msg.sender, address(this), _amt);
         }
 
-        uint256 feeAmt = (_amt * feeBps) / 1e4;
-        weth.transfer(address(treasury), feeAmt);
-
-        uint256 inAmt = _amt - feeAmt;
-
-        wethSplit.mint(inAmt);
-
-        (uint112 res0, uint112 res1,) = pool.getReserves();
-
-        uint256 out;
-        if (_future0) {
-            token1.transfer(address(pool), inAmt);
-
-            // t1 in t0 out
-            // if token0first => res0 => t0 reserves
-            // token 1 reserves = token0First ? res1 : res0
-            out = UniswapV2Utils.getAmountOut(inAmt, token0First ? res1 : res0, token0First ? res0 : res1);
-
-            // token0out = token0First ? out:0
-            pool.swap(token0First ? out : 0, token0First ? 0 : out, address(msg.sender), "");
-
-            token0.transfer(address(msg.sender), inAmt);
-        } else {
-            token0.transfer(address(pool), inAmt);
-            out = UniswapV2Utils.getAmountOut(inAmt, token0First ? res0 : res1, token0First ? res1 : res0);
-            pool.swap(token0First ? 0 : out, token0First ? out : 0, address(msg.sender), "");
-            token1.transfer(address(msg.sender), inAmt);
-        }
-
-        uint256 returned = inAmt + out;
-        require(returned >= _minAmtOut, "too little received");
-        return returned;
+        return _buy(_amt, _minAmtOut, _future0, weth, token0, token1, pool, wethSplit, token0First);
     }
 
     function sell(uint256 _amt, uint256 _minAmtOut, bool _future0) public returns (uint256) {
@@ -334,37 +352,7 @@ contract Zap {
         // transfer the lp tokens in
         pool.transferFrom(msg.sender, address(this), _amt);
 
-        // transfer the fees out to the treasury
-        uint256 feeAmt = _amt * feeBps / 1e4;
-        pool.transfer(address(treasury), feeAmt);
-
-        // split the LP token into LPw and LPs
-        uint256 inAmt = _amt - feeAmt;
-        lpSplit.mint(inAmt);
-
-        (uint112 res0, uint112 res1,) = lpPool.getReserves();
-        uint256 out;
-        if (_future0) {
-            // swap the unwanted LPs/LPw for LPw/LPs and transfer to sender
-            lpToken1.transfer(address(lpPool), inAmt);
-            out = UniswapV2Utils.getAmountOut(inAmt, lpToken0First ? res1 : res0, lpToken0First ? res0 : res1);
-            lpPool.swap(lpToken0First ? out : 0, lpToken0First ? 0 : out, address(msg.sender), "");
-
-            // send the already minted, wanted LPs/LPw to sender
-            lpToken0.transfer(address(msg.sender), inAmt);
-        } else {
-            // swap the unwanted LPs/LPw for LPw/LPs and transfer to sender
-            lpToken0.transfer(address(lpPool), inAmt);
-            out = UniswapV2Utils.getAmountOut(inAmt, lpToken0First ? res0 : res1, lpToken0First ? res1 : res0);
-            lpPool.swap(lpToken0First ? 0 : out, lpToken0First ? out : 0, address(msg.sender), "");
-
-            // send the already minted, wanted LPs/LPw to sender
-            lpToken1.transfer(address(msg.sender), inAmt);
-        }
-
-        uint256 returned = inAmt + out;
-        require(returned >= _minAmtOut, "too little received");
-        return returned;
+        return _buy(_amt, _minAmtOut, _future0, IERC20(address(pool)), lpToken0, lpToken1, lpPool, lpSplit, lpToken0First);
     }
 
     // staked LP{s,w} -> LP
