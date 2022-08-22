@@ -114,52 +114,231 @@ contract Zap {
         require(success);
     }
 
-    function _buy(
-        uint256 _amt,
-        uint256 _minAmtOut,
-        bool _future0,
-        IERC20 _inputToken,
-        IERC20 _token0,
-        IERC20 _token1,
-        IUniswapV2Pair _pool,
-        Split _split,
-        bool _token0First
-    )
-        internal
-        returns (uint256)
-    {
-        uint256 feeAmt = (_amt * feeBps) / 1e4;
-        _inputToken.transfer(address(treasury), feeAmt);
+    struct BuySellInput {
+        uint256 _amt;
+        uint256 _minAmtOut;
+        bool _future0;
+        IERC20 _inputToken;
+        IERC20 _token0;
+        IERC20 _token1;
+        IUniswapV2Pair _pool;
+        Split _split;
+        bool _token0First;
+    }
 
-        uint256 inAmt = _amt - feeAmt;
+    struct SellLPInput {
+        uint256 _amt;
+        uint256 _minAmount;
+        IUniswapV2Pair _pool;
+        IERC20 _token0;
+        IERC20 _token1;
+        bool _token0First;
+        IERC20 _inputToken;
+        Split _split;
+    }
 
-        _split.mint(inAmt);
+    struct BuyLPInput {
+        uint256 _amt;
+        uint256 _minAmount;
+        IERC20 _inputToken;
+        Split _split;
+        IUniswapV2Pair _pool;
+        bool _token0First;
+        IERC20 _token0;
+        IERC20 _token1;
+    }
 
-        (uint112 res0, uint112 res1,) = _pool.getReserves();
+    function _buy(BuySellInput memory input) internal returns (uint256) {
+        uint256 feeAmt = (input._amt * feeBps) / 1e4;
+        input._inputToken.transfer(address(treasury), feeAmt);
+
+        uint256 inAmt = input._amt - feeAmt;
+
+        input._split.mint(inAmt);
+
+        (uint112 res0, uint112 res1,) = input._pool.getReserves();
 
         uint256 out;
-        if (_future0) {
-            _token1.transfer(address(_pool), inAmt);
+        if (input._future0) {
+            input._token1.transfer(address(input._pool), inAmt);
 
             // t1 in t0 out
             // if token0first => res0 => t0 reserves
             // token 1 reserves = token0First ? res1 : res0
-            out = UniswapV2Utils.getAmountOut(inAmt, _token0First ? res1 : res0, _token0First ? res0 : res1);
+            out = UniswapV2Utils.getAmountOut(inAmt, input._token0First ? res1 : res0, input._token0First ? res0 : res1);
 
-            // token0out = _token0First ? out:0
-            _pool.swap(_token0First ? out : 0, _token0First ? 0 : out, address(msg.sender), "");
+            // token0out = input._token0First ? out:0
+            input._pool.swap(input._token0First ? out : 0, input._token0First ? 0 : out, address(msg.sender), "");
 
-            _token0.transfer(address(msg.sender), inAmt);
+            input._token0.transfer(address(msg.sender), inAmt);
         } else {
-            _token0.transfer(address(_pool), inAmt);
-            out = UniswapV2Utils.getAmountOut(inAmt, _token0First ? res0 : res1, _token0First ? res1 : res0);
-            _pool.swap(_token0First ? 0 : out, _token0First ? out : 0, address(msg.sender), "");
-            _token1.transfer(address(msg.sender), inAmt);
+            input._token0.transfer(address(input._pool), inAmt);
+            out = UniswapV2Utils.getAmountOut(inAmt, input._token0First ? res0 : res1, input._token0First ? res1 : res0);
+            input._pool.swap(input._token0First ? 0 : out, input._token0First ? out : 0, address(msg.sender), "");
+            input._token1.transfer(address(msg.sender), inAmt);
         }
 
         uint256 returned = inAmt + out;
-        require(returned >= _minAmtOut, "too little received");
+        require(returned >= input._minAmtOut, "too little received");
         return returned;
+    }
+
+    function _sell(BuySellInput memory input) internal returns (uint256) {
+        (input._future0 ? input._token0 : input._token1).transferFrom(msg.sender, address(this), input._amt);
+
+        uint256 feeAmt = (input._amt * feeBps) / 1e4;
+        (input._future0 ? input._token0 : input._token1).transfer(address(treasury), feeAmt);
+
+        uint256 inAmt = input._amt - feeAmt;
+        (uint256 res0, uint256 res1,) = input._pool.getReserves();
+        (uint256 resIn, uint256 resOut) = input._future0 == input._token0First ? (res0, res1) : (res1, res0);
+
+        uint256 num0 = (1000 * resIn) / 997 + inAmt + resOut;
+        uint256 b = (num0 - Math.sqrt(num0 ** 2 - 4 * inAmt * resOut)) / 2;
+        uint256 out = UniswapV2Utils.getAmountOut(inAmt - b, resIn, resOut);
+        require(out >= input._minAmtOut, "too little received");
+
+        if (input._future0) {
+            input._token0.transfer(address(input._pool), inAmt - b);
+            input._pool.swap(input._token0First ? 0 : out, input._token0First ? out : 0, address(this), "");
+        } else {
+            input._token1.transfer(address(input._pool), inAmt - b);
+            input._pool.swap(input._token0First ? out : 0, input._token0First ? 0 : out, address(this), "");
+        }
+
+        // b - out = 1 unit of token being sold, not worth the gas to send the token dust
+        input._split.burn(out);
+
+        return out;
+    }
+
+    function _buyLP(BuyLPInput memory input) internal returns (uint256) {
+        uint256 feeAmt = (input._amt * feeBps) / 1e4;
+        input._inputToken.transfer(address(treasury), feeAmt);
+
+        uint256 inAmt = input._amt - feeAmt;
+        input._split.mint(inAmt);
+
+        (uint256 res0, uint256 res1,) = input._pool.getReserves();
+
+        if (!input._token0First) {
+            (res0, res1) = (res1, res0);
+        }
+        bool excessIn0 = res1 >= res0;
+        if (!excessIn0) {
+            (res0, res1) = (res1, res0);
+        }
+
+        if (res0 == res1) {
+            (,, uint256 returned) = router.addLiquidity(
+                address(input._token0), address(input._token1), inAmt, inAmt, 0, 0, address(msg.sender), type(uint256).max
+            );
+            return returned;
+        }
+
+        uint256 amtIn = (
+            Math.sqrt(
+                (
+                    res0
+                        * (
+                            (4 * inAmt * res1 * 1000) / 997 + (res0 * inAmt * (1000 - 997) ** 2) / 997 ** 2
+                                + (res0 * res1 * (1000 + 997) ** 2) / 997 ** 2
+                        )
+                ) / (res1 + inAmt)
+            ) - (res0 * (1000 + 997)) / 997
+        ) / 2;
+        uint256 amtOut = UniswapV2Utils.getAmountOut(amtIn, res0, res1);
+
+        uint256 returned;
+        if (excessIn0) {
+            input._token0.transfer(address(input._pool), amtIn);
+            input._pool.swap(input._token0First ? 0 : amtOut, input._token0First ? amtOut : 0, address(this), "");
+
+            (,, returned) = router.addLiquidity(
+                address(input._token0),
+                address(input._token1),
+                inAmt - amtIn,
+                inAmt + amtOut,
+                0,
+                0,
+                address(msg.sender),
+                type(uint256).max
+            );
+        } else {
+            input._token1.transfer(address(input._pool), amtIn);
+            input._pool.swap(input._token0First ? amtOut : 0, input._token0First ? 0 : amtOut, address(this), "");
+
+            (,, returned) = router.addLiquidity(
+                address(input._token0),
+                address(input._token1),
+                inAmt + amtOut,
+                inAmt - amtIn,
+                0,
+                0,
+                address(msg.sender),
+                type(uint256).max
+            );
+        }
+
+        require(returned > input._minAmount, "too little received");
+        return returned;
+    }
+
+    function _sellLP(SellLPInput memory input) public returns (uint256) {
+        // transfer LP2 tokens in
+        input._pool.transferFrom(address(msg.sender), address(this), input._amt);
+
+        uint256 feeAmt = (input._amt * feeBps) / 1e4;
+        input._pool.transfer(address(treasury), feeAmt);
+
+        uint256 inAmt = input._amt - feeAmt;
+
+        (uint256 a0, uint256 a1) = router.removeLiquidity(
+            address(input._token0),
+            address(input._token1),
+            inAmt, // a0, a1 are ordered input._token0(here) input._token1(here)
+            0,
+            0,
+            address(this),
+            type(uint256).max
+        );
+
+        (uint256 r0, uint256 r1,) = input._pool.getReserves();
+        if (!input._token0First) {
+            (r0, r1) = (r1, r0);
+        }
+        // r0,r1 are ordered input._token0(input._pool) input._token1(input._pool), swap if input._token0(input._pool) == input._token1(here)
+
+        if (a0 == a1) {
+            input._split.burn(a0);
+            return a0;
+        }
+
+        bool excessIn0 = a0 > a1;
+        if (excessIn0) {
+            (a0, a1, r0, r1) = (a1, a0, r1, r0);
+        }
+
+        uint256 a_ = a1 ** 2;
+        uint256 b_ = a1 * r0 + (1000 * a1 * r1) / 997 + a0 * a1 - a1 ** 2;
+        uint256 c2_ = (1000 * a1 * r1) / 997 - (a0 * 1000 * r1) / 997;
+        uint256 x = (a1 * (Math.sqrt(b_ ** 2 + 4 * a_ * c2_) - b_)) / (2 * a_);
+
+        (excessIn0 ? input._token0 : input._token1).transfer(address(input._pool), x);
+        uint256 out = UniswapV2Utils.getAmountOut(x, r1, r0);
+
+        if (input._token0First) {
+            input._pool.swap(excessIn0 ? 0 : out, excessIn0 ? out : 0, address(this), "");
+        } else {
+            input._pool.swap(excessIn0 ? out : 0, excessIn0 ? 0 : out, address(this), "");
+        }
+
+        uint256 res = a0 + out;
+        require(res > input._minAmount, "too little received");
+
+        input._split.burn(res);
+
+        return res;
     }
 
     // ETH -> WETH{w,s}
@@ -171,36 +350,36 @@ contract Zap {
             weth.transferFrom(msg.sender, address(this), _amt);
         }
 
-        return _buy(_amt, _minAmtOut, _future0, weth, token0, token1, pool, wethSplit, token0First);
+        BuySellInput memory input = BuySellInput({
+            _amt: _amt,
+            _minAmtOut: _minAmtOut,
+            _future0: _future0,
+            _inputToken: weth,
+            _token0: token0,
+            _token1: token1,
+            _pool: pool,
+            _split: wethSplit,
+            _token0First: token0First
+        });
+
+        return _buy(input);
     }
 
     function sell(uint256 _amt, uint256 _minAmtOut, bool _future0) public returns (uint256) {
-        (_future0 ? token0 : token1).transferFrom(msg.sender, address(this), _amt);
+        BuySellInput memory input = BuySellInput({
+            _amt: _amt,
+            _minAmtOut: _minAmtOut,
+            _future0: _future0,
+            _inputToken: weth,
+            _token0: token0,
+            _token1: token1,
+            _pool: pool,
+            _split: wethSplit,
+            _token0First: token0First
+        });
+        uint256 out = _sell(input);
 
-        uint256 feeAmt = (_amt * feeBps) / 1e4;
-        (_future0 ? token0 : token1).transfer(address(treasury), feeAmt);
-
-        uint256 inAmt = _amt - feeAmt;
-        (uint256 res0, uint256 res1,) = pool.getReserves();
-        (uint256 resIn, uint256 resOut) = _future0 == token0First ? (res0, res1) : (res1, res0);
-
-        uint256 num0 = (1000 * resIn) / 997 + inAmt + resOut;
-        uint256 b = (num0 - Math.sqrt(num0 ** 2 - 4 * inAmt * resOut)) / 2;
-        uint256 out = UniswapV2Utils.getAmountOut(inAmt - b, resIn, resOut);
-        require(out >= _minAmtOut, "too little received");
-
-        if (_future0) {
-            token0.transfer(address(pool), inAmt - b);
-            pool.swap(token0First ? 0 : out, token0First ? out : 0, address(this), "");
-        } else {
-            token1.transfer(address(pool), inAmt - b);
-            pool.swap(token0First ? out : 0, token0First ? 0 : out, address(this), "");
-        }
-
-        // b - out = 1 unit of token being sold, not worth the gas to send the token dust
-        wethSplit.burn(out);
         weth.withdraw(out);
-
         (bool success,) = msg.sender.call{value: out}("");
         require(success);
 
@@ -215,132 +394,34 @@ contract Zap {
             weth.transferFrom(msg.sender, address(this), _amt);
         }
 
-        uint256 feeAmt = (_amt * feeBps) / 1e4;
-        weth.transfer(address(treasury), feeAmt);
+        BuyLPInput memory input = BuyLPInput({
+            _amt: _amt,
+            _minAmount: _minAmount,
+            _inputToken: weth,
+            _split: wethSplit,
+            _pool: pool,
+            _token0First: token0First,
+            _token0: token0,
+            _token1: token1
+        });
 
-        uint256 inAmt = _amt - feeAmt;
-        wethSplit.mint(inAmt);
-
-        (uint256 res0, uint256 res1,) = pool.getReserves();
-
-        if (!token0First) {
-            (res0, res1) = (res1, res0);
-        }
-        bool excessIn0 = res1 >= res0;
-        if (!excessIn0) {
-            (res0, res1) = (res1, res0);
-        }
-
-        if (res0 == res1) {
-            (,, uint256 returned) = router.addLiquidity(
-                address(token0), address(token1), inAmt, inAmt, 0, 0, address(msg.sender), type(uint256).max
-            );
-            return returned;
-        }
-
-        uint256 amtIn = (
-            Math.sqrt(
-                (
-                    res0
-                        * (
-                            (4 * inAmt * res1 * 1000) / 997 + (res0 * inAmt * (1000 - 997) ** 2) / 997 ** 2
-                                + (res0 * res1 * (1000 + 997) ** 2) / 997 ** 2
-                        )
-                ) / (res1 + inAmt)
-            ) - (res0 * (1000 + 997)) / 997
-        ) / 2;
-        uint256 amtOut = UniswapV2Utils.getAmountOut(amtIn, res0, res1);
-
-        uint256 returned;
-        if (excessIn0) {
-            token0.transfer(address(pool), amtIn);
-            pool.swap(token0First ? 0 : amtOut, token0First ? amtOut : 0, address(this), "");
-
-            (,, returned) = router.addLiquidity(
-                address(token0),
-                address(token1),
-                inAmt - amtIn,
-                inAmt + amtOut,
-                0,
-                0,
-                address(msg.sender),
-                type(uint256).max
-            );
-        } else {
-            token1.transfer(address(pool), amtIn);
-            pool.swap(token0First ? amtOut : 0, token0First ? 0 : amtOut, address(this), "");
-
-            (,, returned) = router.addLiquidity(
-                address(token0),
-                address(token1),
-                inAmt + amtOut,
-                inAmt - amtIn,
-                0,
-                0,
-                address(msg.sender),
-                type(uint256).max
-            );
-        }
-
-        require(returned > _minAmount, "too little received");
-        return returned;
+        return _buyLP(input);
     }
 
     function sellLP(uint256 _amt, uint256 _minAmount) public returns (uint256) {
-        pool.transferFrom(address(msg.sender), address(this), _amt);
+        SellLPInput memory input = SellLPInput({
+            _amt: _amt,
+            _minAmount: _minAmount,
+            _pool: pool,
+            _token0: token0,
+            _token1: token1,
+            _token0First: token0First,
+            _inputToken: weth,
+            _split: wethSplit
+        });
 
-        uint256 feeAmt = (_amt * feeBps) / 1e4;
-        pool.transfer(address(treasury), feeAmt);
+        uint256 res = _sellLP(input);
 
-        uint256 inAmt = _amt - feeAmt;
-
-        (uint256 a0, uint256 a1) = router.removeLiquidity(
-            address(token0),
-            address(token1),
-            inAmt, // a0, a1 are ordered token0(here) token1(here)
-            0,
-            0,
-            address(this),
-            type(uint256).max
-        );
-
-        (uint256 r0, uint256 r1,) = pool.getReserves();
-        if (!token0First) {
-            (r0, r1) = (r1, r0);
-        }
-        // r0,r1 are ordered token0(pool) token1(pool), swap if token0(pool) == token1(here)
-
-        if (a0 == a1) {
-            wethSplit.burn(a0);
-            weth.withdraw(a0);
-            (bool success,) = msg.sender.call{value: a0}("");
-            require(success);
-            return a0;
-        }
-
-        bool excessIn0 = a0 > a1;
-        if (excessIn0) {
-            (a0, a1, r0, r1) = (a1, a0, r1, r0);
-        }
-
-        uint256 a_ = a1 ** 2;
-        uint256 b_ = a1 * r0 + (1000 * a1 * r1) / 997 + a0 * a1 - a1 ** 2;
-        uint256 c2_ = (1000 * a1 * r1) / 997 - (a0 * 1000 * r1) / 997;
-        uint256 x = (a1 * (Math.sqrt(b_ ** 2 + 4 * a_ * c2_) - b_)) / (2 * a_);
-
-        (excessIn0 ? token0 : token1).transfer(address(pool), x);
-        uint256 out = UniswapV2Utils.getAmountOut(x, r1, r0);
-
-        if (token0First) {
-            pool.swap(excessIn0 ? 0 : out, excessIn0 ? out : 0, address(this), "");
-        } else {
-            pool.swap(excessIn0 ? out : 0, excessIn0 ? 0 : out, address(this), "");
-        }
-
-        uint256 res = a0 + out;
-        require(res > _minAmount, "too little received");
-
-        wethSplit.burn(res);
         weth.withdraw(res);
         (bool success,) = msg.sender.call{value: res}("");
         require(success);
@@ -352,35 +433,37 @@ contract Zap {
         // transfer the lp tokens in
         pool.transferFrom(msg.sender, address(this), _amt);
 
-        return _buy(_amt, _minAmtOut, _future0, IERC20(address(pool)), lpToken0, lpToken1, lpPool, lpSplit, lpToken0First);
+        BuySellInput memory input = BuySellInput({
+            _amt: _amt,
+            _minAmtOut: _minAmtOut,
+            _future0: _future0,
+            _inputToken: IERC20(address(pool)),
+            _token0: lpToken0,
+            _token1: lpToken1,
+            _pool: lpPool,
+            _split: lpSplit,
+            _token0First: lpToken0First
+        });
+
+        return _buy(input);
     }
 
     // staked LP{s,w} -> LP
     function unstakeLP(uint256 _amt, uint256 _minAmtOut, bool _future0) public returns (uint256) {
-        (_future0 ? lpToken0 : lpToken1).transferFrom(msg.sender, address(this), _amt);
+        BuySellInput memory input = BuySellInput({
+            _amt: _amt,
+            _minAmtOut: _minAmtOut,
+            _future0: _future0,
+            _inputToken: IERC20(address(pool)),
+            _token0: lpToken0,
+            _token1: lpToken1,
+            _pool: lpPool,
+            _split: lpSplit,
+            _token0First: lpToken0First
+        });
 
-        uint256 feeAmt = (_amt * feeBps) / 1e4;
-        (_future0 ? lpToken0 : lpToken1).transfer(address(treasury), feeAmt);
+        uint256 out = _sell(input);
 
-        uint256 inAmt = _amt - feeAmt;
-        (uint256 res0, uint256 res1,) = lpPool.getReserves();
-        (uint256 resIn, uint256 resOut) = _future0 == lpToken0First ? (res0, res1) : (res1, res0);
-
-        uint256 num0 = (1000 * resIn) / 997 + inAmt + resOut;
-        uint256 b = (num0 - Math.sqrt(num0 ** 2 - 4 * inAmt * resOut)) / 2;
-        uint256 out = UniswapV2Utils.getAmountOut(inAmt - b, resIn, resOut);
-        require(out >= _minAmtOut, "too little received");
-
-        if (_future0) {
-            lpToken0.transfer(address(lpPool), inAmt - b);
-            lpPool.swap(lpToken0First ? 0 : out, lpToken0First ? out : 0, address(this), "");
-        } else {
-            lpToken1.transfer(address(lpPool), inAmt - b);
-            lpPool.swap(lpToken0First ? out : 0, lpToken0First ? 0 : out, address(this), "");
-        }
-
-        // b - out = 1 unit of token being sold, not worth the gas to send the token dust
-        lpSplit.burn(out);
         pool.transfer(msg.sender, out);
 
         return out;
@@ -391,139 +474,35 @@ contract Zap {
         // transfer lp tokens in
         pool.transferFrom(msg.sender, address(this), _amt);
 
-        // take the fee
-        uint256 feeAmt = (_amt * feeBps) / 1e4;
-        pool.transfer(address(treasury), feeAmt);
+        BuyLPInput memory input = BuyLPInput({
+            _amt: _amt,
+            _minAmount: _minAmount,
+            _inputToken: IERC20(address(pool)),
+            _split: lpSplit,
+            _pool: lpPool,
+            _token0First: lpToken0First,
+            _token0: lpToken0,
+            _token1: lpToken1
+        });
 
-        // split the LP tokens into LPs/LPw
-        uint256 inAmt = _amt - feeAmt;
-        lpSplit.mint(inAmt);
-
-        (uint256 res0, uint256 res1,) = lpPool.getReserves();
-        if (!lpToken0First) {
-            (res0, res1) = (res1, res0);
-        }
-
-        // check whether we need to buy LPs or LPw
-        bool excessIn0 = res1 >= res0;
-        if (!excessIn0) {
-            (res0, res1) = (res1, res0);
-        }
-
-        // if LPs and LPw are equal price then just LP normally
-        if (res0 == res1) {
-            (,, uint256 returned) = router.addLiquidity(
-                address(lpToken0), address(lpToken1), inAmt, inAmt, 0, 0, address(msg.sender), type(uint256).max
-            );
-            return returned;
-        }
-
-        // calculate how much LPs/LPw needs to be bought to be able to add liquidity
-        uint256 amtIn = (
-            Math.sqrt(
-                (
-                    res0
-                        * (
-                            (4 * inAmt * res1 * 1000) / 997 + (res0 * inAmt * (1000 - 997) ** 2) / 997 ** 2
-                                + (res0 * res1 * (1000 + 997) ** 2) / 997 ** 2
-                        )
-                ) / (res1 + inAmt)
-            ) - (res0 * (1000 + 997)) / 997
-        ) / 2;
-        uint256 amtOut = UniswapV2Utils.getAmountOut(amtIn, res0, res1);
-
-        uint256 returned;
-        if (excessIn0) {
-            lpToken0.transfer(address(lpPool), amtIn);
-            lpPool.swap(lpToken0First ? 0 : amtOut, lpToken0First ? amtOut : 0, address(this), "");
-
-            (,, returned) = router.addLiquidity(
-                address(lpToken0),
-                address(lpToken1),
-                inAmt - amtIn,
-                inAmt + amtOut,
-                0,
-                0,
-                address(msg.sender),
-                type(uint256).max
-            );
-        } else {
-            lpToken1.transfer(address(lpPool), amtIn);
-            lpPool.swap(lpToken0First ? amtOut : 0, lpToken0First ? 0 : amtOut, address(this), "");
-
-            (,, returned) = router.addLiquidity(
-                address(lpToken0),
-                address(lpToken1),
-                inAmt + amtOut,
-                inAmt - amtIn,
-                0,
-                0,
-                address(msg.sender),
-                type(uint256).max
-            );
-        }
-
-        require(returned > _minAmount, "too little received");
-        return returned;
+        return _buyLP(input);
     }
 
-    //  function unstakeLP2() staked LP2 -> LP
+    //  staked LP2 -> LP
     function unstakeLP2(uint256 _amt, uint256 _minAmount) public returns (uint256) {
-        // transfer LP2 tokens in
-        lpPool.transferFrom(address(msg.sender), address(this), _amt);
+        SellLPInput memory input = SellLPInput({
+            _amt: _amt,
+            _minAmount: _minAmount,
+            _pool: lpPool,
+            _token0: lpToken0,
+            _token1: lpToken1,
+            _token0First: lpToken0First,
+            _inputToken: IERC20(address(pool)),
+            _split: lpSplit
+        });
 
-        // transfer fee to treasury
-        uint256 feeAmt = (_amt * feeBps) / 1e4;
-        lpPool.transfer(address(treasury), feeAmt);
+        uint256 res = _sellLP(input);
 
-        // remove liquidity and get LPs/LPw tokens
-        uint256 inAmt = _amt - feeAmt;
-        (uint256 a0, uint256 a1) = router.removeLiquidity(
-            address(lpToken0),
-            address(lpToken1),
-            inAmt, // a0, a1 are ordered token0(here) token1(here)
-            0,
-            0,
-            address(this),
-            type(uint256).max
-        );
-
-        (uint256 r0, uint256 r1,) = lpPool.getReserves();
-        if (!lpToken0First) {
-            (r0, r1) = (r1, r0);
-        }
-        if (a0 == a1) {
-            // convert LPs+LPw tokens to LP tokens and transfer to sender
-            lpSplit.burn(a0);
-            pool.transfer(msg.sender, a0);
-            return a0;
-        }
-
-        bool excessIn0 = a0 > a1;
-        if (excessIn0) {
-            (a0, a1, r0, r1) = (a1, a0, r1, r0);
-        }
-
-        uint256 a_ = a1 ** 2;
-        uint256 b_ = a1 * r0 + (1000 * a1 * r1) / 997 + a0 * a1 - a1 ** 2;
-        uint256 c2_ = (1000 * a1 * r1) / 997 - (a0 * 1000 * r1) / 997;
-        uint256 x = (a1 * (Math.sqrt(b_ ** 2 + 4 * a_ * c2_) - b_)) / (2 * a_);
-
-        // swap the excess LPw/LPs tokens so that they are evenly split
-        (excessIn0 ? lpToken0 : lpToken1).transfer(address(lpPool), x);
-        uint256 out = UniswapV2Utils.getAmountOut(x, r1, r0);
-
-        if (lpToken0First) {
-            lpPool.swap(excessIn0 ? 0 : out, excessIn0 ? out : 0, address(this), "");
-        } else {
-            lpPool.swap(excessIn0 ? out : 0, excessIn0 ? 0 : out, address(this), "");
-        }
-
-        uint256 res = a0 + out;
-        require(res > _minAmount, "too little received");
-
-        // convert LPs+LPw tokens to LP tokens and transfer to sender
-        lpSplit.burn(res);
         pool.transfer(msg.sender, res);
 
         return res;
