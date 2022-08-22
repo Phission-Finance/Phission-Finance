@@ -58,7 +58,7 @@ contract StakingTest_fork is Test {
         staking.notifyRewardAmount(rewardsAmount);
     }
 
-    function testStart_stake(bool beforeSweep, uint256 delay1, uint256 delay2) public {
+    function testStart_stake(bool beforeSweep, uint256 delay1, uint256 delay2, uint256 delay3) public {
         emit log_named_uint("total supply", staking.totalSupply());
         deal(address(stakeToken), address(this), 1 ether);
 
@@ -95,6 +95,8 @@ contract StakingTest_fork is Test {
         staking.exitAndSweep();
 
         if (!beforeSweep) {
+            skip(delay3 % (1 days));
+
             vm.startPrank(address(123), address(123));
             staking.getReward();
             vm.stopPrank();
