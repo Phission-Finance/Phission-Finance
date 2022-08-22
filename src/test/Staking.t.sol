@@ -7,7 +7,7 @@ import "../Factory.sol";
 import "../GovToken.sol";
 import "./LpUtils.sol";
 
-interface IStakingRewards {
+interface IStaking {
     function totalSupply() external view returns (uint256);
 
     function stake(uint256 amount) external;
@@ -18,12 +18,12 @@ interface IStakingRewards {
 
     function notifyRewardAmount(uint256 reward) external;
 
-    function sweepLeftovers() external;
+    function exitAndSweep() external;
 }
 
 contract StakingTest_fork is Test {
     IWETH weth = IWETH(0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2);
-    IStakingRewards staking;
+    IStaking staking;
     SplitFactory sf;
     MockOracle mockOracle;
     GovToken gov;
@@ -36,10 +36,16 @@ contract StakingTest_fork is Test {
         sf.create(weth);
         gov = new GovToken();
         stakeToken = new GovToken();
-
         address rewardToken = address(gov);
 
-        staking = IStakingRewards(
+        uint8 nonce = 5;
+
+        address predicted = address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xd6), bytes1(0x94), address(this), bytes1(nonce))))));
+
+        deal(address(stakeToken), address(this), 1);
+        stakeToken.approve(predicted, type(uint).max);
+
+        staking = IStaking(
             deployCode(
                 "Staking.sol:Staking",
                 abi.encode(
@@ -58,15 +64,22 @@ contract StakingTest_fork is Test {
         staking.notifyRewardAmount(rewardsAmount);
     }
 
-    function testStart_stake() public {
+    function testStart_stake(bool beforeSweep, uint delay1, uint delay2) public {
         emit log_named_uint("total supply", staking.totalSupply());
         deal(address(stakeToken), address(this), 1 ether);
+
+        skip(delay1 % (1 days));
 
         stakeToken.approve(address(staking), 1 ether);
         staking.stake(1 ether);
         emit log_named_uint("total supply", staking.totalSupply());
 
+        uint a = delay2 % (2 days);
+
+        skip(1 days + a);
+
         vm.startPrank(address(123), address(123));
+
         deal(address(stakeToken), address(123), 1 ether);
         stakeToken.approve(address(staking), 1 ether);
         staking.stake(1 ether);
@@ -75,31 +88,30 @@ contract StakingTest_fork is Test {
 
         emit log_named_uint("total supply", staking.totalSupply());
 
-        skip(5 days);
-
-        console.log(
-            "rewards bal after 5 days",
-            gov.balanceOf(address(staking))
-        );
-
-        staking.getReward();
-
-        vm.startPrank(address(123), address(123));
-        staking.getReward();
-        vm.stopPrank();
-
-        console.log(
-            "rewards after claiming rewards after 5 days",
-            gov.balanceOf(address(staking))
-        );
+        skip(3 days - a);
 
         mockOracle.set(true, true, true);
-        staking.sweepLeftovers();
+
+        if (beforeSweep) {
+            vm.startPrank(address(123), address(123));
+            staking.getReward();
+            vm.stopPrank();
+        }
+
+        staking.exitAndSweep();
+
+        if (!beforeSweep) {
+            vm.startPrank(address(123), address(123));
+            staking.getReward();
+            vm.stopPrank();
+        }
+
         console.log(
-            "rewards after claiming rewards after 5 days",
+            "rewards left",
             gov.balanceOf(address(staking))
         );
-        assertTrue(gov.balanceOf(address(staking)) == 0, "dust remaining!");
+
+        require(gov.balanceOf(address(staking)) < 1e6, "too much dust left");
     }
 
     receive() external payable {}
