@@ -16,8 +16,8 @@ contract Staking is StakingRewards {
         address _rewardsToken,
         address _stakingToken
     )
-    public
-    StakingRewards(_owner, _rewardsDistribution, _rewardsToken, _stakingToken)
+        public
+        StakingRewards(_owner, _rewardsDistribution, _rewardsToken, _stakingToken)
     {
         oracle = _oracle;
         stake(1);
@@ -27,15 +27,17 @@ contract Staking is StakingRewards {
     function sweepLeftovers() internal {
         require(oracle.isExpired());
 
-        uint leftover = periodFinish.sub(block.timestamp).mul(rewardRate);
-        uint dust = earned(address(this));
+        uint256 leftover = periodFinish.sub(block.timestamp).mul(rewardRate);
+        uint256 dust = earned(address(this));
 
         rewardsToken.safeTransfer(owner, leftover + dust);
         leftoversSwept = true;
     }
 
     function exitAndSweep() external {
-        if (!leftoversSwept) sweepLeftovers();
+        if (!leftoversSwept) {
+            sweepLeftovers();
+        }
 
         withdraw(balanceOf(msg.sender));
         getReward();

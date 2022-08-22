@@ -40,21 +40,15 @@ contract StakingTest_fork is Test {
 
         uint8 nonce = 5;
 
-        address predicted = address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xd6), bytes1(0x94), address(this), bytes1(nonce))))));
+        address predicted =
+            address(uint160(uint256(keccak256(abi.encodePacked(bytes1(0xd6), bytes1(0x94), address(this), bytes1(nonce))))));
 
         deal(address(stakeToken), address(this), 1);
-        stakeToken.approve(predicted, type(uint).max);
+        stakeToken.approve(predicted, type(uint256).max);
 
         staking = IStaking(
             deployCode(
-                "Staking.sol:Staking",
-                abi.encode(
-                    mockOracle,
-                    address(this),
-                    address(this),
-                    rewardToken,
-                    address(stakeToken)
-                )
+                "Staking.sol:Staking", abi.encode(mockOracle, address(this), address(this), rewardToken, address(stakeToken))
             )
         );
 
@@ -64,7 +58,7 @@ contract StakingTest_fork is Test {
         staking.notifyRewardAmount(rewardsAmount);
     }
 
-    function testStart_stake(bool beforeSweep, uint delay1, uint delay2) public {
+    function testStart_stake(bool beforeSweep, uint256 delay1, uint256 delay2) public {
         emit log_named_uint("total supply", staking.totalSupply());
         deal(address(stakeToken), address(this), 1 ether);
 
@@ -74,7 +68,7 @@ contract StakingTest_fork is Test {
         staking.stake(1 ether);
         emit log_named_uint("total supply", staking.totalSupply());
 
-        uint a = delay2 % (2 days);
+        uint256 a = delay2 % (2 days);
 
         skip(1 days + a);
 
@@ -106,10 +100,7 @@ contract StakingTest_fork is Test {
             vm.stopPrank();
         }
 
-        console.log(
-            "rewards left",
-            gov.balanceOf(address(staking))
-        );
+        console.log("rewards left", gov.balanceOf(address(staking)));
 
         require(gov.balanceOf(address(staking)) < 1e6, "too much dust left");
     }
