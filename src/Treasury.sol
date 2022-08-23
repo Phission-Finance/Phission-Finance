@@ -1,7 +1,5 @@
 pragma solidity ^0.8.0;
 
-import "forge-std/Test.sol";
-
 import "./Split.sol";
 import "./Factory.sol";
 import "./GovToken.sol";
@@ -15,7 +13,7 @@ import "../lib/utils/Math.sol";
 import "../lib/utils/IWETH.sol";
 import "../lib/prb-math/contracts/PRBMath.sol";
 
-contract Treasury is Test {
+contract Treasury {
     IWETH weth;
     IOracle oracle;
     GovToken public gov;
@@ -41,6 +39,7 @@ contract Treasury is Test {
     bool lp0First;
 
     IUniswapV2Router02 uniswapRouter;
+    uint redeemAfter;
 
     constructor(
         SplitFactory _factory,
@@ -48,8 +47,11 @@ contract Treasury is Test {
         IUniswapV2Router02 _uniswapRouter,
         GovToken _gov,
         IUniswapV2SlidingOracle _uniswapOracle,
-        IWETH _weth
+        IWETH _weth,
+        uint _redeemAfter
     ) {
+        redeemAfter = _redeemAfter;
+
         oracle = _factory.oracle();
         weth = IWETH(_weth);
 
@@ -102,14 +104,9 @@ contract Treasury is Test {
     bool firstRedeem;
 
     function redeem(uint256 _amt) public {
-        // => need to redeem all assets, as anything accrued right before merge would be stuck otherwise
-        emit log_named_uint("_amt", _amt);
-
-        emit log_named_uint("gov0.balanceOf(address(this))", gov0.balanceOf(address(this)));
-        emit log_named_uint("gov1.balanceOf(address(this))", gov1.balanceOf(address(this)));
-        emit log_named_uint("gov.balanceOf(address(this))", gov.balanceOf(address(this)));
-
+        require(block.timestamp >= redeemAfter);
         require(oracle.isExpired());
+
         bool redeemOn0 = oracle.isRedeemable(true);
 
         if (!firstRedeem) {
@@ -117,37 +114,25 @@ contract Treasury is Test {
             unwind(redeemOn0);
         }
 
-        emit log_named_uint("gov0.balanceOf(address(this))", gov0.balanceOf(address(this)));
-        emit log_named_uint("gov1.balanceOf(address(this))", gov1.balanceOf(address(this)));
-        emit log_named_uint("gov.balanceOf(address(this))", gov.balanceOf(address(this)));
 
         uint256 total = gov.totalSupply() - gov.balanceOf(address(this));
 
-        emit log_named_uint("total init", total);
-
-        // need a function to calculate underlyings
-        // burnt from each side because of gov-eth lp and govw/s lp
-
+        // first redeem is ~600k gas, rest are 50k
         if (redeemOn0) {
             total -= (gov0.balanceOf(address(this)) + burntLPGov0);
         } else {
             total -= (gov1.balanceOf(address(this)) + burntLPGov1);
         }
 
-        emit log_named_uint("total", total);
 
         gov.transferFrom(msg.sender, address(this), _amt);
 
-        emit log_named_uint("address(this).balance", address(this).balance);
-        emit log_named_uint("total", total);
 
         uint256 returnETH = PRBMath.mulDiv(_amt, address(this).balance, total);
-        emit log_named_uint("returnETH", returnETH);
 
         (bool success,) = msg.sender.call{value : returnETH}("");
         require(success);
 
-        emit log_named_uint("address(this).balance", address(this).balance);
     }
 
     uint256 burntLPGov0;
@@ -201,11 +186,6 @@ contract Treasury is Test {
             burntLPGov0 = token0First ? bal0 : bal1;
             burntLPGov1 = token0First ? bal1 : bal0;
 
-            emit log_named_uint("res0", res0);
-            emit log_named_uint("res1", res1);
-            emit log_named_uint("bsw0", bsw0);
-            emit log_named_uint("burntLPGov0", burntLPGov0);
-            emit log_named_uint("burntLPGov1", burntLPGov1);
         }
 
         uint256 b0 = govEthPool.balanceOf(address(0));
@@ -218,11 +198,6 @@ contract Treasury is Test {
             burntLPGov0 += res;
             burntLPGov1 += res;
 
-            emit log_named_uint("res0", res0);
-            emit log_named_uint("res1", res1);
-            emit log_named_uint("b0", b0);
-            emit log_named_uint("burntLPGov0", burntLPGov0);
-            emit log_named_uint("burntLPGov1", burntLPGov1);
         }
 
         uint256 futAmt = (redeemOn0 ? token0 : token1).balanceOf(address(this));
@@ -273,10 +248,6 @@ contract Treasury is Test {
             (res0, res1) = (res1, res0);
         }
 
-        emit log_named_uint("bal0", bal0);
-        emit log_named_uint("bal1", bal1);
-        emit log_named_uint("res0", res0);
-        emit log_named_uint("res1", res1);
 
         bool excessIn0 = bal0 * res1 > bal1 * res0;
 
@@ -334,7 +305,6 @@ contract Treasury is Test {
     function unwindLPs() internal {
         {
             uint256 bal2 = lpPool.balanceOf(address(this));
-            emit log_named_uint("bal2", bal2);
             if (bal2 > 0) {
                 uniswapRouter.removeLiquidity(address(lp0), address(lp1), bal2, 0, 0, address(this), type(uint256).max);
             }
@@ -342,8 +312,6 @@ contract Treasury is Test {
 
         (uint256 bal0, uint256 bal1) = (lp0.balanceOf(address(this)), lp1.balanceOf(address(this)));
 
-        emit log_named_uint("bal0", bal0);
-        emit log_named_uint("bal1", bal1);
 
         if (bal0 == bal1) {
             if (bal0 != 0) {
@@ -355,8 +323,6 @@ contract Treasury is Test {
         bool excessIn0 = bal0 > bal1;
         (uint256 res0, uint256 res1,) = lpPool.getReserves();
 
-        emit log_named_uint("res0", res0);
-        emit log_named_uint("res1", res1);
 
         if (!lp0First) {
             (res0, res1) = (res1, res0);
@@ -367,29 +333,20 @@ contract Treasury is Test {
 
         uint256 excess = bal0 - bal1;
 
-        emit log_named_uint("excess", excess);
-        emit log_named_uint("bal0", bal0);
-        emit log_named_uint("bal1", bal1);
-        emit log_named_uint("res0", res0);
-        emit log_named_uint("res1", res1);
 
         uint256 num0 = (1000 * res0) / 997 + excess + res1;
         uint256 b = (num0 - Math.sqrt(num0 ** 2 - 4 * excess * res1)) / 2;
         uint256 out = UniswapV2Utils.getAmountOut(excess - b, res0, res1);
-        emit log_named_uint("out", out);
 
         uint256 amtIn = excess - b;
-        emit log_named_uint("amtIn", amtIn);
 
         {
             uint256 oracleAmtOut = uniswapOracle.consult(address(excessIn0 ? lp0 : lp1), amtIn, address(excessIn0 ? lp1 : lp0));
-            emit log_named_uint("oracleAmtOut", oracleAmtOut);
             if (oracleAmtOut == 0) {
                 return;
             }
 
             uint256 minAmtOut = (oracleAmtOut * (10000 - maxSlippageLP)) / 10000;
-            emit log_named_uint("minAmtOut", minAmtOut);
             if (out < minAmtOut) {
                 return;
             }
@@ -401,8 +358,6 @@ contract Treasury is Test {
         (excessIn0 ? lp0 : lp1).transfer(address(lpPool), amtIn);
         lpPool.swap(excessIn0 == lp0First ? 0 : out, excessIn0 == lp0First ? out : 0, address(this), "");
 
-        emit log_named_uint("bal0 - amtIn", bal0 - amtIn);
-        emit log_named_uint("bal1 + out", bal1 + out);
 
         lpSplit.burn(Math.min(bal1 + out, bal0 - amtIn));
     }

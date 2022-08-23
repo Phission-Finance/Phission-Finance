@@ -67,7 +67,7 @@ contract SplitLp is Test {
     IUniswapV2Router02 univ2router = IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
 
     IERC20 token;
-    Split s;
+    Split public s;
     IERC20 public t0;
     IERC20 public t1;
 
