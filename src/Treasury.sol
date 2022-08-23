@@ -24,7 +24,7 @@ contract Treasury {
     IUniswapV2Pair govEthPool;
 
     IUniswapV2SlidingOracle uniswapOracle;
-    uint256  uniswapOracleWindowSize;
+    uint256 uniswapOracleWindowSize;
 
     Split wethSplit;
     fERC20 token0;
@@ -39,7 +39,7 @@ contract Treasury {
     bool lp0First;
 
     IUniswapV2Router02 uniswapRouter;
-    uint redeemAfter;
+    uint256 redeemAfter;
 
     constructor(
         SplitFactory _factory,
@@ -48,7 +48,7 @@ contract Treasury {
         GovToken _gov,
         IUniswapV2SlidingOracle _uniswapOracle,
         IWETH _weth,
-        uint _redeemAfter
+        uint256 _redeemAfter
     ) {
         redeemAfter = _redeemAfter;
 
@@ -74,7 +74,6 @@ contract Treasury {
         lpSplit = _factory.splits(IERC20(address(pool)));
         (lp0, lp1) = lpSplit.futures();
         pool.approve(address(lpSplit), type(uint256).max);
-
 
         lpPool = IUniswapV2Pair(_uniswapFactory.getPair(address(lp0), address(lp1)));
         lp0.approve(address(_uniswapRouter), type(uint256).max);
@@ -114,7 +113,6 @@ contract Treasury {
             unwind(redeemOn0);
         }
 
-
         uint256 total = gov.totalSupply() - gov.balanceOf(address(this));
 
         // first redeem is ~600k gas, rest are 50k
@@ -124,15 +122,12 @@ contract Treasury {
             total -= (gov1.balanceOf(address(this)) + burntLPGov1);
         }
 
-
         gov.transferFrom(msg.sender, address(this), _amt);
-
 
         uint256 returnETH = PRBMath.mulDiv(_amt, address(this).balance, total);
 
-        (bool success,) = msg.sender.call{value : returnETH}("");
+        (bool success,) = msg.sender.call{value: returnETH}("");
         require(success);
-
     }
 
     uint256 burntLPGov0;
@@ -180,24 +175,24 @@ contract Treasury {
         uint256 bsw0 = govPool.balanceOf(address(0));
         if (bsw0 > 0) {
             (uint256 res0, uint256 res1,) = govPool.getReserves();
-            (uint256 bal0, uint256 bal1) = UniswapV2Utils.computeLiquidityValue(res0, res1, govPool.totalSupply(), bsw0, false, 0);
+            (uint256 bal0, uint256 bal1) =
+                UniswapV2Utils.computeLiquidityValue(res0, res1, govPool.totalSupply(), bsw0, false, 0);
 
             bool token0First = govPool.token0() == address(gov0);
             burntLPGov0 = token0First ? bal0 : bal1;
             burntLPGov1 = token0First ? bal1 : bal0;
-
         }
 
         uint256 b0 = govEthPool.balanceOf(address(0));
         if (b0 > 0) {
             (uint256 res0, uint256 res1,) = govEthPool.getReserves();
-            (uint256 bal0, uint256 bal1) = UniswapV2Utils.computeLiquidityValue(res0, res1, govEthPool.totalSupply(), b0, false, 0);
+            (uint256 bal0, uint256 bal1) =
+                UniswapV2Utils.computeLiquidityValue(res0, res1, govEthPool.totalSupply(), b0, false, 0);
 
             uint256 res = govEthPool.token0() == address(gov) ? bal0 : bal1;
 
             burntLPGov0 += res;
             burntLPGov1 += res;
-
         }
 
         uint256 futAmt = (redeemOn0 ? token0 : token1).balanceOf(address(this));
@@ -233,9 +228,8 @@ contract Treasury {
         uint256 elapsed = block.timestamp - intended;
 
         require(
-            elapsed >= uniswapOracleWindowSize - 2 hours &&
-            elapsed <= uniswapOracleWindowSize + 2 hours
-        , "not in window");
+            elapsed >= uniswapOracleWindowSize - 2 hours && elapsed <= uniswapOracleWindowSize + 2 hours, "not in window"
+        );
 
         splitEth();
 
@@ -248,7 +242,6 @@ contract Treasury {
             (res0, res1) = (res1, res0);
         }
 
-
         bool excessIn0 = bal0 * res1 > bal1 * res0;
 
         if (!excessIn0) {
@@ -259,7 +252,8 @@ contract Treasury {
 
         uint256 amtIn = (Math.sqrt(PRBMath.mulDiv(res0, num, res1 + bal1)) - (res0 * (1000 + 997)) / 997) / 2;
 
-        uint256 oracleAmtOut = uniswapOracle.consult(address(excessIn0 ? token0 : token1), amtIn, address(excessIn0 ? token1 : token0));
+        uint256 oracleAmtOut =
+            uniswapOracle.consult(address(excessIn0 ? token0 : token1), amtIn, address(excessIn0 ? token1 : token0));
 
         require(oracleAmtOut != 0, "oracle price = 0");
 
@@ -282,7 +276,7 @@ contract Treasury {
         }
 
         (,, uint256 liquidity) =
-        uniswapRouter.addLiquidity(address(token0), address(token1), b00, b11, 0, 0, address(this), type(uint256).max);
+            uniswapRouter.addLiquidity(address(token0), address(token1), b00, b11, 0, 0, address(this), type(uint256).max);
 
         unwindLPs();
 
@@ -293,7 +287,7 @@ contract Treasury {
     function splitEth() internal {
         uint256 ethBal = address(this).balance;
         if (ethBal > 0) {
-            weth.deposit{value : ethBal}();
+            weth.deposit{value: ethBal}();
         }
 
         uint256 wethBal = weth.balanceOf(address(this));
@@ -312,7 +306,6 @@ contract Treasury {
 
         (uint256 bal0, uint256 bal1) = (lp0.balanceOf(address(this)), lp1.balanceOf(address(this)));
 
-
         if (bal0 == bal1) {
             if (bal0 != 0) {
                 lpSplit.burn(bal0);
@@ -323,7 +316,6 @@ contract Treasury {
         bool excessIn0 = bal0 > bal1;
         (uint256 res0, uint256 res1,) = lpPool.getReserves();
 
-
         if (!lp0First) {
             (res0, res1) = (res1, res0);
         }
@@ -333,7 +325,6 @@ contract Treasury {
 
         uint256 excess = bal0 - bal1;
 
-
         uint256 num0 = (1000 * res0) / 997 + excess + res1;
         uint256 b = (num0 - Math.sqrt(num0 ** 2 - 4 * excess * res1)) / 2;
         uint256 out = UniswapV2Utils.getAmountOut(excess - b, res0, res1);
@@ -341,7 +332,8 @@ contract Treasury {
         uint256 amtIn = excess - b;
 
         {
-            uint256 oracleAmtOut = uniswapOracle.consult(address(excessIn0 ? lp0 : lp1), amtIn, address(excessIn0 ? lp1 : lp0));
+            uint256 oracleAmtOut =
+                uniswapOracle.consult(address(excessIn0 ? lp0 : lp1), amtIn, address(excessIn0 ? lp1 : lp0));
             if (oracleAmtOut == 0) {
                 return;
             }
@@ -358,9 +350,6 @@ contract Treasury {
         (excessIn0 ? lp0 : lp1).transfer(address(lpPool), amtIn);
         lpPool.swap(excessIn0 == lp0First ? 0 : out, excessIn0 == lp0First ? out : 0, address(this), "");
 
-
         lpSplit.burn(Math.min(bal1 + out, bal0 - amtIn));
     }
 }
-
-

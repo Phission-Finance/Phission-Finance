@@ -36,7 +36,7 @@ contract TreasuryTest_fork is Test {
     IUniswapV2Factory univ2fac = IUniswapV2Factory(0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f);
     IUniswapV2Router02 univ2router = IUniswapV2Router02(0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D);
 
-    uint redeemAfter;
+    uint256 redeemAfter;
 
     function setUp() public {
         emit log_string("ssss1");
@@ -79,7 +79,7 @@ contract TreasuryTest_fork is Test {
         treasury = new Treasury(sf, univ2fac, univ2router, gov, uniswapOracle, weth, redeemAfter);
         govlp.sendAllTo(address(treasury));
 
-        weth.deposit{value : 20 ether}();
+        weth.deposit{value: 20 ether}();
         weth.approve(address(s), type(uint256).max);
         s.mint(20 ether);
     }
@@ -127,26 +127,25 @@ contract TreasuryTest_fork is Test {
         require(address(this).balance - bal == (token0 ? trAmt0 : trAmt1) / 2, "rev 1");
     }
 
-    mapping(address => uint) redeemers;
+    mapping(address => uint256) redeemers;
 
-    function newRedeemer(uint id, uint amt) internal {
+    function newRedeemer(uint256 id, uint256 amt) internal {
         address user = address(uint160(uint256(keccak256(abi.encode(id)))));
         gov.transfer(user, amt);
         redeemers[user] = amt;
     }
 
-    function userRedeem(uint id) internal returns (uint){
-
+    function userRedeem(uint256 id) internal returns (uint256) {
         address user = address(uint160(uint256(keccak256(abi.encode(id)))));
-        uint bal_before = address(user).balance;
+        uint256 bal_before = address(user).balance;
 
-        uint amt = redeemers[user];
+        uint256 amt = redeemers[user];
 
         vm.startPrank(user, user);
-        gov.approve(address(treasury), type(uint).max);
-        uint gas = gasleft();
+        gov.approve(address(treasury), type(uint256).max);
+        uint256 gas = gasleft();
         treasury.redeem(amt);
-        console.log("redeem gas used", gas-gasleft());
+        console.log("redeem gas used", gas - gasleft());
         vm.stopPrank();
         return address(user).balance - bal_before;
     }
@@ -154,13 +153,13 @@ contract TreasuryTest_fork is Test {
     function checkTreasuryEmpty(bool check0, bool check1) internal {
         // dont check for gov tokens as those are ignored
 
-        uint bal = address(treasury).balance;
-        uint balF0 = f0.balanceOf(address(treasury));
-        uint balF1 = f1.balanceOf(address(treasury));
-        uint balLP = pool.balanceOf(address(treasury));
-        uint balLP0 = lp0.balanceOf(address(treasury));
-        uint balLP1 = lp1.balanceOf(address(treasury));
-        uint balLPLP = lpLp.pool().balanceOf(address(treasury));
+        uint256 bal = address(treasury).balance;
+        uint256 balF0 = f0.balanceOf(address(treasury));
+        uint256 balF1 = f1.balanceOf(address(treasury));
+        uint256 balLP = pool.balanceOf(address(treasury));
+        uint256 balLP0 = lp0.balanceOf(address(treasury));
+        uint256 balLP1 = lp1.balanceOf(address(treasury));
+        uint256 balLPLP = lpLp.pool().balanceOf(address(treasury));
 
         console.log("bal", bal);
         console.log("balF0", balF0);
@@ -201,12 +200,12 @@ contract TreasuryTest_fork is Test {
         burnAmt = burnAmt % ((gov.MAX_SUPPLY() - gov.totalSupply()) / 2);
         gov.mint(address(treasury), burnAmt);
 
-        uint circulating = gov.MAX_SUPPLY() - gov.totalSupply();
+        uint256 circulating = gov.MAX_SUPPLY() - gov.totalSupply();
         gov.mint(address(this), circulating);
 
-        uint users = 20;
-        for (uint i = 0; i < users; i++) {
-            uint amt = circulating / users / 2;
+        uint256 users = 20;
+        for (uint256 i = 0; i < users; i++) {
+            uint256 amt = circulating / users / 2;
             console.log("amt", i, amt);
             newRedeemer(i, amt);
         }
@@ -218,21 +217,19 @@ contract TreasuryTest_fork is Test {
 
         uint256 totalEthRedeemed = 0;
 
-        for (uint i = 0; i < users; i++) {
-            uint userRedemption = userRedeem(i);
+        for (uint256 i = 0; i < users; i++) {
+            uint256 userRedemption = userRedeem(i);
             totalEthRedeemed += userRedemption;
             require(userRedemption > 0);
         }
 
-
-        uint thisRedeemed = address(this).balance;
+        uint256 thisRedeemed = address(this).balance;
 
         gov.approve(address(treasury), type(uint256).max);
         treasury.redeem(gov.balanceOf(address(this)));
 
         thisRedeemed = address(this).balance - thisRedeemed;
         totalEthRedeemed += thisRedeemed;
-
 
         require(0 == address(treasury).balance, "rev 1");
         assertApproxEqAbs(1 ether * totalEthRedeemed / thisRedeemed, 2 ether, 1e6);
@@ -250,9 +247,9 @@ contract TreasuryTest_fork is Test {
 
         LP govEthLp = new LP(gov, weth);
         gov.mint(address(govEthLp), 1 ether);
-        weth.deposit{value : 3 ether}();
+        weth.deposit{value: 3 ether}();
         weth.transfer(address(treasury), 1 ether);
-        address(treasury).call{value : 1 ether}("");
+        address(treasury).call{value: 1 ether}("");
 
         weth.transfer(address(govEthLp), 2 ether);
         govEthLp.add(1 ether, 2 ether);
@@ -282,7 +279,7 @@ contract TreasuryTest_fork is Test {
         emit log_named_uint("govlp.pool().balanceOf(address(treasury))", govlp.pool().balanceOf(address(treasury)));
         emit log_named_uint(
             "govEthLp.pool().balanceOf(address(treasury))", govEthLp.pool().balanceOf(address(treasury))
-        );
+            );
         emit log_named_uint("lp.pool().balanceOf(address(treasury))", lp.pool().balanceOf(address(treasury)));
         emit log_named_uint("weth.balanceOf(address(treasury))", weth.balanceOf(address(treasury)));
         emit log_named_uint("address(treasury).balance", address(treasury).balance);
@@ -316,8 +313,6 @@ contract TreasuryTest_fork is Test {
             revert("should fail out of window");
         } catch {}
     }
-
-
 
     // TO LP
     function test_convertToLp(bool token0, bool isImbalanced, bool imbalanceDirection) public {
@@ -378,7 +373,7 @@ contract TreasuryTest_fork is Test {
         bool lpTokn0,
         bool lpImbalance
     )
-    public
+        public
     {
         MockOracle(address(o)).set(false, token0, !token0);
 
@@ -422,7 +417,9 @@ contract TreasuryTest_fork is Test {
         uniswapOracle.set(lp.pool().token0(), lp.pool().token1(), (res1 << 112) / res0, (res0 << 112) / res1);
 
         (uint256 reslp0, uint256 reslp1,) = lpLp.pool().getReserves();
-        uniswapOracle.set(lpLp.pool().token0(), lpLp.pool().token1(), (reslp1 << 112) / reslp0, (reslp0 << 112) / reslp1);
+        uniswapOracle.set(
+            lpLp.pool().token0(), lpLp.pool().token1(), (reslp1 << 112) / reslp0, (reslp0 << 112) / reslp1
+        );
 
         treasury.convertToLp();
 
