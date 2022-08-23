@@ -8,22 +8,22 @@ contract Lock {
     IERC20 public underlying;
     IOracle public oracle;
 
+    mapping(address => uint256) public balances;
+
     constructor(IERC20 _underlying, IOracle _oracle) {
         underlying = _underlying;
         oracle = _oracle;
     }
 
-    mapping(address => uint256) balances;
-
     function lock(uint256 amt) public {
-        require(!oracle.isExpired());
+        require(!oracle.isExpired(), "Merge has already happened");
 
         underlying.transferFrom(msg.sender, address(this), amt);
         balances[msg.sender] += amt;
     }
 
     function unlock(uint256 amt) public {
-        require(oracle.isExpired());
+        require(oracle.isExpired(), "Merge has not happened yet");
 
         balances[msg.sender] -= amt;
         underlying.transfer(msg.sender, amt);
