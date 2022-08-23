@@ -67,7 +67,6 @@ contract Treasury {
         uniswapRouter = _uniswapRouter;
 
         _uniswapOracle.update(address(token0), address(token1));
-        _uniswapOracle.update(address(lp0), address(lp1));
         uniswapOracleWindowSize = _uniswapOracle.windowSize();
         uniswapOracle = _uniswapOracle;
 
@@ -79,6 +78,8 @@ contract Treasury {
         lpSplit = _factory.splits(IERC20(address(pool)));
         (lp0, lp1) = lpSplit.futures();
         pool.approve(address(lpSplit), type(uint256).max);
+
+        _uniswapOracle.update(address(lp0), address(lp1));
 
         lpPool = IUniswapV2Pair(_uniswapFactory.getPair(address(lp0), address(lp1)));
         lp0.approve(address(_uniswapRouter), type(uint256).max);
