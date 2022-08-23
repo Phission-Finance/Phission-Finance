@@ -530,9 +530,21 @@ contract TreasuryTest_fork is Test {
         } catch {}
     }
 
+    function test_itCannotRedeemIfOutsideRedeemWindow() public {
+        // arrange
+        o.set(false, false, false);
+
+        // act
+        vm.expectRevert("Redeem window not reached");
+        treasury.redeem(1);
+    }
+
     function test_itCannotRedeemIfOracleIsNotExpired() public {
         // arrange
         o.set(false, false, false);
+
+        require(block.timestamp < redeemAfter);
+        vm.warp(redeemAfter);
 
         // act
         vm.expectRevert("Merge has not happened yet");
@@ -573,6 +585,9 @@ contract TreasuryTest_fork is Test {
 
         uint256 ethBalanceBefore = address(this).balance;
         uint256 govTokenBalanceBefore = gov.balanceOf(address(this));
+
+        require(block.timestamp < redeemAfter);
+        vm.warp(redeemAfter);
 
         // act
         treasury.redeem(amount);
@@ -631,6 +646,9 @@ contract TreasuryTest_fork is Test {
 
         stdstore.target(address(treasury)).sig("firstRedeem()").checked_write(false);
         o.set(true, true, false);
+
+        require(block.timestamp < redeemAfter);
+        vm.warp(redeemAfter);
 
         // act
         for (uint256 i = 0; i < amountAccountsLength; i++) {

@@ -13,7 +13,6 @@ import "../lib/utils/Math.sol";
 import "../lib/utils/IWETH.sol";
 import "../lib/prb-math/contracts/PRBMath.sol";
 
-
 contract Treasury {
     IWETH public weth;
     IOracle public oracle;
