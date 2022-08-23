@@ -59,8 +59,7 @@ contract ZapTest_fork is Test {
         gov = new GovToken();
         sf.create(IERC20(address(gov)));
 
-        treasury = new Treasury(sf, univ2fac, univ2router, gov, uniswapOracle, weth);
-        //        gov = treasury.gov();
+        treasury = new Treasury(sf, univ2fac, univ2router, gov, uniswapOracle, weth, type(uint).max);
 
         weth.deposit{value: 10 ether}();
         weth.approve(address(s), type(uint256).max);
@@ -69,7 +68,7 @@ contract ZapTest_fork is Test {
         s.mint(8 ether);
         emit log_named_uint("SPLIT::MINT() gas usage", gas - gasleft());
 
-        z = new Zap(univ2fac, univ2router, sf, Treasury(treasury), weth);
+        z = new Zap(univ2fac, univ2router, sf, treasury, weth);
     }
 
     function test_fork_mint(uint256 amt) public {
