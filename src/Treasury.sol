@@ -122,7 +122,6 @@ contract Treasury is Test {
         emit log_named_uint("gov0.balanceOf(address(this))", gov0.balanceOf(address(this)));
         emit log_named_uint("gov1.balanceOf(address(this))", gov1.balanceOf(address(this)));
         emit log_named_uint("gov.balanceOf(address(this))", gov.balanceOf(address(this)));
-        emit log_named_uint("gov.totalSupply()", gov.totalSupply());
 
         uint256 total = gov.totalSupply() - gov.balanceOf(address(this));
 
@@ -138,8 +137,6 @@ contract Treasury is Test {
         }
 
         emit log_named_uint("total", total);
-
-        emit log_named_uint("bbb", gov.balanceOf(msg.sender));
 
         gov.transferFrom(msg.sender, address(this), _amt);
 
