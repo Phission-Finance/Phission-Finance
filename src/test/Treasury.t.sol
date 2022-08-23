@@ -9,9 +9,11 @@ import "./MockUniswapV2SlidingOracle.sol";
 import "./CheatCodes.sol";
 
 contract TreasuryTest_fork is Test {
+    using stdStorage for StdStorage;
+
     Treasury treasury;
     GovToken gov;
-    IOracle o;
+    MockOracle o;
     SplitFactory sf;
     Split s;
     fERC20 f0;
@@ -36,7 +38,7 @@ contract TreasuryTest_fork is Test {
     function setUp() public {
         emit log_string("ssss1");
 
-        o = IOracle(address(new MockOracle(false, true, false)));
+        o = new MockOracle(false, true, false);
         sf = new SplitFactory(o);
         s = sf.create(weth);
         (f0, f1) = s.futures();
@@ -402,5 +404,130 @@ contract TreasuryTest_fork is Test {
         try treasury.convertToLp() {
             revert("should fail oracle price too far");
         } catch {}
+    }
+
+    function test_itCannotRedeemIfOracleIsNotExpired() public {
+        // arrange
+        o.set(false, false, false);
+
+        // act
+        vm.expectRevert("Merge has not happened yet");
+        treasury.redeem(1);
+    }
+
+    function test_itRedeemsAssetsProportionalToGovTokensOwned(
+        uint256 treasuryGovAmount,
+        uint256 treasuryGov0Amount,
+        uint256 treasuryEthAmount,
+        uint256 amount,
+        uint256 additionalGovSupply
+    )
+        public
+    {
+        // arrange
+        treasuryGovAmount = bound(treasuryGovAmount, 0, type(uint32).max);
+        treasuryGov0Amount = bound(treasuryGov0Amount, 0, type(uint32).max);
+        treasuryEthAmount = bound(treasuryEthAmount, 100, type(uint32).max);
+        amount = bound(amount, 100, type(uint32).max);
+        additionalGovSupply = bound(additionalGovSupply, 0, type(uint32).max);
+
+        deal(address(gov), address(this), treasuryGovAmount + treasuryGov0Amount, true);
+        gov.approve(address(govlp.s()), type(uint256).max);
+        govlp.s().mint(treasuryGov0Amount);
+        gov.transfer(address(treasury), treasuryGovAmount);
+        treasury.gov0().transfer(address(treasury), treasuryGov0Amount);
+
+        deal(address(treasury), treasuryEthAmount);
+
+        deal(address(gov), address(this), amount, true);
+        gov.approve(address(treasury), amount);
+
+        deal(address(gov), address(0xdeadbeef), additionalGovSupply, true);
+
+        stdstore.target(address(treasury)).sig("firstRedeem()").checked_write(false);
+        o.set(true, true, false);
+
+        uint256 ethBalanceBefore = address(this).balance;
+        uint256 govTokenBalanceBefore = gov.balanceOf(address(this));
+
+        // act
+        treasury.redeem(amount);
+
+        // assert
+        assertEq(
+            address(this).balance - ethBalanceBefore,
+            (amount * treasuryEthAmount) / (amount + additionalGovSupply),
+            "Should have sent proportional amount of eth to account"
+        );
+        assertEq(
+            govTokenBalanceBefore - gov.balanceOf(address(this)), amount, "Should have sent gov tokens to treasury"
+        );
+    }
+
+    struct AmountAccount {
+        uint256 amount;
+        address account;
+    }
+
+    function test_itMultipleRedeemsAssetsProportionalToGovTokensOwned(
+        uint256 treasuryGovAmount,
+        uint256 treasuryGov0Amount,
+        uint256 treasuryEthAmount,
+        AmountAccount[] memory amountAccounts
+    )
+        public
+    {
+        // arrange
+        uint256 amountAccountsLength = bound(amountAccounts.length, 0, 10);
+        treasuryGovAmount = bound(treasuryGovAmount, 0, type(uint32).max);
+        treasuryGov0Amount = bound(treasuryGov0Amount, 0, type(uint32).max);
+        treasuryEthAmount = bound(treasuryEthAmount, 100, type(uint32).max);
+
+        deal(address(gov), address(this), treasuryGovAmount + treasuryGov0Amount, true);
+        gov.approve(address(govlp.s()), type(uint256).max);
+        govlp.s().mint(treasuryGov0Amount);
+        gov.transfer(address(treasury), treasuryGovAmount);
+        treasury.gov0().transfer(address(treasury), treasuryGov0Amount);
+        deal(address(treasury), treasuryEthAmount);
+
+        uint256 totalOutstandingGovSupply;
+        for (uint256 i = 0; i < amountAccountsLength; i++) {
+            amountAccounts[i].amount = bound(amountAccounts[i].amount, 100, type(uint32).max);
+            amountAccounts[i].account = address(uint160(i + 5000));
+
+            uint256 amount = amountAccounts[i].amount;
+            address account = amountAccounts[i].account;
+
+            deal(address(gov), account, gov.balanceOf(account) + amount, true);
+            vm.prank(account);
+            gov.approve(address(treasury), type(uint256).max);
+
+            totalOutstandingGovSupply += amount;
+        }
+
+        stdstore.target(address(treasury)).sig("firstRedeem()").checked_write(false);
+        o.set(true, true, false);
+
+        // act
+        for (uint256 i = 0; i < amountAccountsLength; i++) {
+            // arrange
+            address account = amountAccounts[i].account;
+            uint256 amount = amountAccounts[i].amount;
+            uint256 ethBalanceBefore = account.balance;
+            uint256 govTokenBalanceBefore = gov.balanceOf(account);
+
+            // act
+            vm.prank(account);
+            treasury.redeem(amount);
+
+            // assert
+            assertEq(govTokenBalanceBefore - gov.balanceOf(account), amount, "Should have sent gov tokens to treasury");
+            assertApproxEqAbs(
+                account.balance - ethBalanceBefore,
+                (amount * treasuryEthAmount) / totalOutstandingGovSupply,
+                9, // allow for one decimal of rounding error
+                "Should have sent proportional amount of eth to account"
+            );
+        }
     }
 }

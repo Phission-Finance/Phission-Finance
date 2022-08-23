@@ -16,31 +16,36 @@ import "../lib/utils/IWETH.sol";
 import "../lib/prb-math/contracts/PRBMath.sol";
 
 contract Treasury is Test {
-    IWETH weth;
-    IOracle oracle;
+    IWETH public weth;
+    IOracle public oracle;
     GovToken public gov;
-    fERC20 gov0;
-    fERC20 gov1;
+    fERC20 public gov0;
+    fERC20 public gov1;
 
-    IUniswapV2Pair govPool;
-    IUniswapV2Pair govEthPool;
+    IUniswapV2Pair public govPool;
+    IUniswapV2Pair public govEthPool;
 
-    IUniswapV2SlidingOracle uniswapOracle;
-    uint256 uniswapOracleWindowSize;
+    IUniswapV2SlidingOracle public uniswapOracle;
+    uint256 public uniswapOracleWindowSize;
 
-    Split wethSplit;
-    fERC20 token0;
-    fERC20 token1;
-    IUniswapV2Pair pool;
-    bool token0First;
+    Split public wethSplit;
+    fERC20 public token0;
+    fERC20 public token1;
+    IUniswapV2Pair public pool;
+    bool public token0First;
 
-    Split lpSplit;
-    fERC20 lp0;
-    fERC20 lp1;
-    IUniswapV2Pair lpPool;
-    bool lp0First;
+    Split public lpSplit;
+    fERC20 public lp0;
+    fERC20 public lp1;
+    IUniswapV2Pair public lpPool;
+    bool public lp0First;
 
-    IUniswapV2Router02 uniswapRouter;
+    IUniswapV2Router02 public uniswapRouter;
+
+    uint256 public burntLPGov0;
+    uint256 public burntLPGov1;
+
+    bool public firstRedeem;
 
     constructor(
         SplitFactory _factory,
@@ -98,8 +103,6 @@ contract Treasury is Test {
 
     receive() external payable {}
 
-    bool firstRedeem;
-
     function redeem(uint256 _amt) public {
         // => need to redeem all assets, as anything accrued right before merge would be stuck otherwise
         emit log_named_uint("_amt", _amt);
@@ -108,7 +111,7 @@ contract Treasury is Test {
         emit log_named_uint("gov1.balanceOf(address(this))", gov1.balanceOf(address(this)));
         emit log_named_uint("gov.balanceOf(address(this))", gov.balanceOf(address(this)));
 
-        require(oracle.isExpired());
+        require(oracle.isExpired(), "Merge has not happened yet");
         bool redeemOn0 = oracle.isRedeemable(true);
 
         if (!firstRedeem) {
@@ -119,6 +122,7 @@ contract Treasury is Test {
         emit log_named_uint("gov0.balanceOf(address(this))", gov0.balanceOf(address(this)));
         emit log_named_uint("gov1.balanceOf(address(this))", gov1.balanceOf(address(this)));
         emit log_named_uint("gov.balanceOf(address(this))", gov.balanceOf(address(this)));
+        emit log_named_uint("gov.totalSupply()", gov.totalSupply());
 
         uint256 total = gov.totalSupply() - gov.balanceOf(address(this));
 
@@ -135,6 +139,8 @@ contract Treasury is Test {
 
         emit log_named_uint("total", total);
 
+        emit log_named_uint("bbb", gov.balanceOf(msg.sender));
+
         gov.transferFrom(msg.sender, address(this), _amt);
 
         emit log_named_uint("address(this).balance", address(this).balance);
@@ -149,11 +155,8 @@ contract Treasury is Test {
         emit log_named_uint("address(this).balance", address(this).balance);
     }
 
-    uint256 burntLPGov0;
-    uint256 burntLPGov1;
-
     function unwind(bool redeemOn0) internal {
-        // PHI-WETH  ->   PHI & WETH
+        // PHI-WETH -> PHI & WETH
         uint256 govEthLiq = govEthPool.balanceOf(address(this));
         if (govEthLiq > 0) {
             govEthPool.approve(address(uniswapRouter), type(uint256).max);
