@@ -434,7 +434,7 @@ contract Zap {
         return out;
     }
 
-    function stakeLP(uint256 _amt, uint256 _minAmtOut, bool _future0) public payable returns (uint256) {
+    function stakeLP(uint256 _amt, uint256 _minAmtOut, bool _future0) public returns (uint256) {
         // transfer the lp tokens in
         pool.transferFrom(msg.sender, address(this), _amt);
 
@@ -479,7 +479,7 @@ contract Zap {
     }
 
     // LP -> LP^2
-    function stakeLP2(uint256 _amt, uint256 _minAmtOut) public payable returns (uint256) {
+    function stakeLP2(uint256 _amt, uint256 _minAmtOut) public returns (uint256) {
         // transfer lp tokens in
         pool.transferFrom(msg.sender, address(this), _amt);
 
