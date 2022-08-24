@@ -1,61 +1,48 @@
-# Phission
+# Phission Finance
 
-Excuse the awful code, this is a WIP. This readme is just a disorganized todo list with some notes
+Providing a market for transacting PoW-ETH and PoS-ETH heading into the [Ethereum Merge](https://ethereum.org/en/upgrades/merge/).
 
-to run tests: `./test.sh <rpc url> <etherscan api key>`
+Our primitive allows users to split any ERC-20 compatible asset into Proof-of-Work (PoW) and Proof-of-Stake (PoS) Fragments. 
 
-forge doesn't support values larger than uint64 for block.difficulty, so for the live deployment `MIN_RANDAO` in `Oracle.sol` should be set to a higher value (1e30 or so)
+After the Merge, each Fragment is redeemable for the original asset on the PoW and PoS chains respectively. 
+Trading of Phission-native assets is supported by Uniswap v2 pools that earn liquidity providers trading fees and token ($PHI) rewards.
 
-zap: 
-    settable fees (in upgrade?)
-    sell <<<<<< math
-        fee before
-        fee after
-    lp <<<<<< math
-        buy: fee before fee after
-        sell: fee before fee after
-    eth -> gov(s/w)
-    gov(s/w) -> eth
-        buy: fee before fee after
-        sell: fee before fee after
+Before continuing further into our repo, please read the [documentation](https://phission-finance.gitbook.io/)
 
-treasury:
-    [x] redeem
 
-ZAP not upgradable, just deploy a new one
+## Mainnet Contract Deployments
 
-- [x] treasury lp calls
-  - [x] both directions
-- [ ] treasury lp^2
-- [ ] zap math for flat fee on input amount
-  - [x] buy
-  - [x] sell
-  - [ ] buy lp
-  - [ ] sell lp
-- [ ] staking contract
+* $WETH:
+* SplitFactory:
+* Split ($WETH):
+* $WETHs:
+* $WETHw:
+* Univ2 pool ($WETHs/$WETHw == $LP):
+* Univ2 pool oracle ($WETHs/$WETHw):
+* Split ($LP):
+* $LPs:
+* $LPw:
+* Univ2 pool ($LPs/$LPw == $LP²):
+* Univ2 pool oracle ($LPs/$LPw):
+* $PHI:
+* Split ($PHI):
+* $PHIs:
+* $PHIw:
+* Treasury:
+* ZAP:
+* Staking Rewards ($LP²):
 
-=> launch testnet test without staking rewards
 
-[ ] replace convertToLp math function with new one 
-[ ] replace same math for the sell one
+## Audits
 
-### deployment steps
-NOTE: (for testing)
-* deploy fork oracle (mock oracle)
-* deploy split factory
-* create some weth, create weth split, approve weth to split
-* mint some ETHw/ETHs tokens. add liq to uniswap pool
-* deploy univ2 oracle for ETHw/ETHs
-* mint some LPw/LPs tokens. add liq to uniswap pool
-* deploy univ2 oracle for LPs/LPw
-* deploy gov token PHI
-* team allocation in a multisig (hotwallet)
-( change treasury & zap to use injected weth)
-* mint some PHIw/PHIs tokens
-* deploy treasury
-* add liq to PHIw/PHIs and move LP tokens to treasury 
-* deploy zap contract
+Although several of the contracts are forks of trusted smart contract from major DeFi "blue chips", and the primitive is simple, Phission is an **unaudited** protocol - please proceed at your own risk.
 
-* add liq to PHI eth pool uniswap pool?? 
-* deploy staking contracts 
-* put gov token in them
+
+## Useful Links
+Phission: https://phission.finance/
+
+Docs: https://phission-finance.gitbook.io/
+
+Discord: https://discord.gg/fXJDRr9PwW
+
+Twitter: https://twitter.com/phissionfinance
