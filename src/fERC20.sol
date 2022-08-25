@@ -16,6 +16,7 @@ contract fERC20 is ERC20 {
     bool future0;
     address owner;
     IOracle oracle;
+    uint8 decimals_;
 
     constructor(IERC20 _underlying, IOracle _oracle, bool _future0)
         ERC20(
@@ -26,11 +27,16 @@ contract fERC20 is ERC20 {
         owner = msg.sender;
         future0 = _future0;
         oracle = _oracle;
+        decimals_ = ERC20(address(_underlying)).decimals();
     }
 
     modifier isOwner() {
         require(msg.sender == owner);
         _;
+    }
+
+    function decimals() public view override returns (uint8) {
+        return decimals_;
     }
 
     function mint(address to, uint256 wad) public isOwner {
